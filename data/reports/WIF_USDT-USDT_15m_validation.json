@@ -1,0 +1,40 @@
+{
+  "symbol": "WIF/USDT:USDT",
+  "total_bars": 88334,
+  "duplicates": 0,
+  "gaps": [],
+  "missing_bars": 0,
+  "impossible_ohlc": [],
+  "non_positive_price": [],
+  "dead_runs": [],
+  "extreme_jumps": [
+    {
+      "timestamp": 1717783200000,
+      "log_return": -0.1480749853425636,
+      "zscore": -9.388354370578181
+    },
+    {
+      "timestamp": 1760129100000,
+      "log_return": -0.10097779619341307,
+      "zscore": -8.57351352786482
+    },
+    {
+      "timestamp": 1760130900000,
+      "log_return": -0.4522761174887452,
+      "zscore": -9.487678093255056
+    },
+    {
+      "timestamp": 1774136700000,
+      "log_return": -0.03946397104101215,
+      "zscore": -8.162865299052303
+    }
+  ],
+  "outlier_wicks": [
+    {
+      "timestamp": 1764871200000,
+      "wick_up": 0.06279999999999997,
+      "wick_dn": 0.0016999999999999793,
+      "atr": 0.009542857142857146
+    }
+  ]
+}

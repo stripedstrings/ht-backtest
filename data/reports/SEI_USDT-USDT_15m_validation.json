@@ -1,0 +1,63 @@
+{
+  "symbol": "SEI/USDT:USDT",
+  "total_bars": 103165,
+  "duplicates": 0,
+  "gaps": [],
+  "missing_bars": 0,
+  "impossible_ohlc": [],
+  "non_positive_price": [],
+  "dead_runs": [],
+  "extreme_jumps": [
+    {
+      "timestamp": 1694319300000,
+      "log_return": -0.0390252925097256,
+      "zscore": -8.632882767211745
+    },
+    {
+      "timestamp": 1699545600000,
+      "log_return": -0.09372790099319528,
+      "zscore": -8.722059408110523
+    },
+    {
+      "timestamp": 1702260000000,
+      "log_return": -0.1052751149147879,
+      "zscore": -9.118623754088176
+    },
+    {
+      "timestamp": 1712942100000,
+      "log_return": -0.05748994899281544,
+      "zscore": -8.268082446560662
+    },
+    {
+      "timestamp": 1712946600000,
+      "log_return": -0.1164629596667858,
+      "zscore": -8.54001359872799
+    },
+    {
+      "timestamp": 1717783200000,
+      "log_return": -0.13246107249665628,
+      "zscore": -9.273403515430957
+    },
+    {
+      "timestamp": 1755871200000,
+      "log_return": 0.0786166920685861,
+      "zscore": 9.00429017656008
+    },
+    {
+      "timestamp": 1760129100000,
+      "log_return": -0.08926109672364525,
+      "zscore": -8.407619944066703
+    },
+    {
+      "timestamp": 1760130900000,
+      "log_return": -0.4143601376770325,
+      "zscore": -9.469450186881705
+    },
+    {
+      "timestamp": 1768780800000,
+      "log_return": -0.051109284818533725,
+      "zscore": -8.518135566040659
+    }
+  ],
+  "outlier_wicks": []
+}

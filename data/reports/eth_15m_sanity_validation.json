@@ -1,0 +1,12 @@
+{
+  "symbol": "ETH/USDT:USDT",
+  "timeframe": "15m",
+  "total_bars": 7680,
+  "duplicates": 0,
+  "gaps": [],
+  "missing_bars": 0,
+  "impossible_ohlc": [],
+  "non_positive_price": [],
+  "extreme_jumps": [],
+  "outlier_wicks": []
+}

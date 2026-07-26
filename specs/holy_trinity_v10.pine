@@ -1,0 +1,1169 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════
+//  HOLY TRINITY v1.0  —  the session range is the gate
+//
+//  Everything before this took ANY fractal, ANYWHERE, at ANY hour. That is
+//  why 26-72 trades of wildly mixed character averaged into a coin: real
+//  springs and meaningless breakdowns pooled together.
+//
+//  v1.0 gates on ONE thing:
+//    killzone opens -> freeze the nearest unswept pool above and below
+//    -> THAT is the range -> whichever edge gets raided INSIDE the session
+//    is the manipulation -> trade the other way, target the far edge.
+//
+//  One range. One session. One or two setups a day. Wyckoff's missing
+//  Phase A/B through the front door: a DEFINED range to spring from.
+//
+//  Nothing is deleted. PDH/PDL, BSL/SSL, OB, FVG, POI, ATR tags, scoreboard
+//  and replay filter all remain. The pools still draw and still get struck
+//  through when run — they just cannot ARM a setup unless they are this
+//  session's range edge.
+//
+//  A DIFFERENT POPULATION, not the same coin measured again. It might be a
+//  different coin. It might not be a coin. Nobody knows yet.
+//
+//  v0.8 on BTC 15m, n=72 (best-powered panel yet):
+//    vs RW:  0.5R -1.4  1R +1.4  1.5R +0.3  2R +1.4  2.5R -0.8
+//  Flat. The UNCONDITIONED entry is a coin and that question is closed.
+//
+//  The only question left: does any TAG condition it into something else?
+//  ΔR cannot answer that — it compares a tag to its complement, and if the
+//  population is a coin then a positive half only implies a negative half.
+//  You need the tag measured against the COIN ITSELF, at every horizon.
+//
+//  So: REPLAY FILTER. Pick one tag. The replay table splits into trades WITH
+//  it and trades WITHOUT it, and shows both against 1/(1+T). That is the
+//  whole experiment. A tag earns a gate when its ON side beats RW by >5pp
+//  at n>=200 on data that was not used to find it. Nothing else counts.
+//
+//  v0.7 verdict, pooled over 230 trades on 7 instruments:
+//    Reach%  0.5R=66.1  1R=50.1  1.5R=41.9  2R=35.0  2.5R=28.6  3R=21.7
+//    Random walk 1/(1+T) = 66.7  50.0  40.0  33.3  28.6  25.0
+//  Six horizons, every one within ~2pp of a coin. The entry as specified
+//  carries no directional information. So v0.8 does three things:
+//
+//  1. THE BENCHMARK IS ON THE TABLE. "vs RW" column. Nothing gets a vote
+//     until it beats 1/(1+T). Should have been there from v0.5.
+//  2. TWO NEW AXES. Every tag so far was derived from the OHLC geometry of
+//     the same leg — nine views of one object, so of course they all said
+//     the same nothing. Range context (Wyckoff Phase A/B: was there a range
+//     to spring FROM) and grab sequence (is this the judas or the fifth raid
+//     of the day) are sampled from outside that leg.
+//  3. TWO BROKEN MEASUREMENTS FIXED. Median warm-up 20 -> 8 (at n=26 on gold
+//     it left four rows reading 6/0). Bias no longer needs HH+HL on daily
+//     pivots, which fired on 8% of trades; it now always has a direction.
+//
+//  v0.7 header retained below — the reasoning still stands.
+//  ---------------------------------------------------------------------
+//
+//  v0.6 said EDGE +8 while the money said 0.00R across 308 trades.
+//  Three things caused that. All three are fixed here.
+//
+//  1. TIMEOUTS WERE COUNTED AS WINS. A +0.04R scrape at maxHold logged as a
+//     win identical to a 2R target. Win% inflated, EDGE inherited it.
+//     Now: three outcomes. TARGET / STOP / TIMEOUT. Win% and BE% are
+//     computed over RESOLVED trades only. AvgR is over all of them.
+//
+//  2. THE TARGET WAS FICTION. 9 of 10 instruments delivered 25-55% less
+//     than the advertised RR. So the exit is no longer assumed: every trade
+//     logs MFE-before-stop, and the replay table below prices EVERY target
+//     from 0.5R to 3R off one run. Your own note said take the small
+//     liquidity first. This is where that gets settled.
+//
+//  3. THE GATES HAD MAGIC NUMBERS. wickMin 0.30 and momAtr 0.60 were as
+//     unjustified as OTE, and flipping the wick fix moved v0.5's +70R to
+//     v0.6's 0R. So they are OFF by default and measured as tags instead.
+//
+//  MEDIAN TAGS: wick, displacement, coil and pool age split on the running
+//  median of the last 300 trades. A tag that fires 5% or 95% of the time
+//  (v0.6's coil and SMR) can never be tested. These split 50/50 by
+//  construction, so the row is always readable.
+// ═══════════════════════════════════════════════════════════════════════════
+
+indicator("Holy Trinity v1.0 — Session Range", "HT10", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+
+// ───────────────────────────── GATES ─────────────────────────────────────
+gG = "① GATES — grab · MSS · FVG. Nothing else may veto."
+swLen        = input.int(5, "Pool fractal N", minval = 2, maxval = 10, group = gG)
+intLen       = input.int(2, "Protected-swing fractal N", minval = 1, maxval = 10, group = gG)
+sweepWin     = input.int(3, "Grab: close back inside within N bars", minval = 1, group = gG)
+wickMin      = input.float(0.0, "Grab: min wick (× ATR)", minval = 0.0, step = 0.05, group = gG, tooltip = "OFF by default. This is now measured as a tag, not assumed as a gate.")
+bosUseClose  = input.bool(true, "MSS requires CLOSE through level", group = gG)
+momAtr       = input.float(0.0, "MSS: min body (× ATR)", minval = 0.0, step = 0.05, group = gG, tooltip = "OFF by default. Measured as a tag.")
+maxBarsToBos = input.int(20, "Max bars grab -> MSS", minval = 1, group = gG)
+ctxBars      = input.int(40, "Range context lookback (bars before the grab)", minval = 10, group = gG, tooltip = "Wyckoff: a spring only means something at the end of a range. This measures whether there WAS one.")
+kzGate       = input.bool(true, "GATE: only raids of the session range", group = gG, tooltip = "THE v1.0 change. Off = v0.9 behaviour (any pool, any hour).")
+rangeMode    = input.string("Freeze at session open", "Session range", options = ["Freeze at session open", "Develop with session"], group = gG)
+oneRaid      = input.bool(true, "One raid per side per session", group = gG)
+
+// ───────────────────────────── ENTRY / EXIT ──────────────────────────────
+gE = "② ENTRY / EXIT"
+retestMode      = input.string("Edge", "Retest depth", options = ["Edge", "50%", "Full fill"], group = gE)
+maxBarsToRetest = input.int(30, "Max bars MSS -> retest", minval = 1, group = gE)
+stopMode        = input.string("Sweep extreme", "Stop", options = ["Sweep extreme", "FVG far side"], group = gE)
+targetMode      = input.string("Session range edge", "Target (the one being questioned)", options = ["Session range edge", "Opposing liquidity", "Fixed R"], group = gE)
+fixedR          = input.float(2.5, "Fixed target R", minval = 0.1, step = 0.5, group = gE)
+maxHold         = input.int(200, "Max bars in trade (timeout)", minval = 10, group = gE)
+mfeWin          = input.int(100, "Exit replay horizon (bars)", minval = 20, group = gE, tooltip = "How long a trade is followed for the replay table. Independent of the live trade.")
+costPts         = input.float(0.0, "Cost per trade (price units)", minval = 0, step = 0.01, group = gE, tooltip = "XAU ~0.32 · XAG ~0.02 · EURUSD ~0.00002 · GBPUSD ~0.00019 · USDJPY ~0.003 · WTI ~0.03. Zero is fiction.")
+
+// ──────────────────────── TAGS — recorded, never enforced ────────────────
+gT = "③ TAGS"
+tzS      = input.string("Europe/London", "Timezone", options = ["Europe/London", "Europe/Helsinki", "America/New_York", "UTC"], group = gT)
+nySess   = input.session("1230-1500", "NY killzone (in tz above)", group = gT, tooltip = "Default = 08:30-11:00 New York expressed in London time.")
+lonSess  = input.session("0700-1000", "London killzone", group = gT)
+asiaSess = input.session("0000-0600", "Asia / consolidation range", group = gT)
+biasTF   = input.timeframe("D", "Bias timeframe", group = gT)
+dPiv     = input.int(2, "Bias swing fractal N", minval = 1, group = gT)
+eqTol    = input.float(0.10, "Equal H/L tolerance (× ATR)", minval = 0.0, step = 0.05, group = gT)
+consBars = input.int(4, "Coil lookback before the FVG (bars)", minval = 2, group = gT)
+maxLiq   = input.int(8, "Live pools per side", minval = 3, maxval = 20, group = gT)
+warmN    = input.int(8, "Median tag warm-up (trades)", minval = 4, group = gT, tooltip = "Trades before a median tag can fire. v0.7 used 20 and starved every row at n=26.")
+
+// ──────────────────────────── SCOREBOARD ─────────────────────────────────
+gS = "④ SCOREBOARD"
+showScore  = input.bool(true, "Scoreboard", group = gS)
+showReplay = input.bool(true, "Exit replay table", group = gS)
+showHours  = input.bool(false, "Hour table", group = gS)
+minN       = input.int(30, "Min resolved n per side to colour a row", minval = 5, group = gS)
+minAll     = input.int(200, "Min resolved n before the verdict is real", minval = 20, group = gS)
+rpFilter   = input.string("none", "REPLAY FILTER — the experiment", options = ["none", "Stacked IMB", "Big displacement", "Old liquidity", "In killzone", "With the draw", "Right P/D", "Valid OB", "Big wick", "Tight coil", "OTE .62-.79", "Range before grab", "First grab of day", "Wide range"], group = gS, tooltip = "Splits the replay table into trades WITH this tag and WITHOUT it, each measured against the random walk 1/(1+T). This is the whole experiment.")
+
+// ───────────────────────────── DISPLAY ───────────────────────────────────
+gV = "⑤ DISPLAY"
+drawPools  = input.bool(true, "Liquidity pools + labels", group = gV)
+drawKZ     = input.bool(true, "Killzone boxes", group = gV)
+drawDay    = input.bool(true, "Day dividers", group = gV)
+drawBias   = input.bool(true, "Daily equilibrium line", group = gV)
+drawSetup  = input.bool(true, "MSS · POI · OB · void", group = gV)
+drawTrades = input.bool(true, "Trades: entry, outcome, R", group = gV)
+drawStub   = input.bool(true, "Swept-level stub", group = gV)
+
+// ═══════════════════════════ PRIMITIVES ══════════════════════════════════
+var int firstTime = na
+if barstate.isfirst
+    firstTime := time
+
+atrV  = ta.atr(14)
+bodyV = math.abs(close - open)
+disp  = bodyV >= momAtr * atrV
+ready = bar_index >= math.max(swLen, intLen) * 2 + 3
+
+inNY   = not na(time(timeframe.period, nySess, tzS))
+inLON  = not na(time(timeframe.period, lonSess, tzS))
+inASIA = not na(time(timeframe.period, asiaSess, tzS))
+inKZ   = inNY or inLON     // v0.7 dropped this when the killzone stopped being a gate. v1.0 needs it back.
+newDay = timeframe.change("D")
+asiaStart = inASIA and not inASIA[1]
+asiaEnd   = not inASIA and inASIA[1]
+
+cRed  = color.new(#ef5350, 0)
+cGrn  = color.new(#26a69a, 0)
+cPurp = color.new(#ab47bc, 0)
+
+f_upFrac(n) =>
+    ok = ready
+    if ok
+        for i = 1 to n
+            if high[n] <= high[n + i] or high[n] <= high[n - i]
+                ok := false
+                break
+    ok
+
+f_dnFrac(n) =>
+    ok = ready
+    if ok
+        for i = 1 to n
+            if low[n] >= low[n + i] or low[n] >= low[n - i]
+                ok := false
+                break
+    ok
+
+poolUp = f_upFrac(swLen)
+poolDn = f_dnFrac(swLen)
+intUp  = f_upFrac(intLen)
+intDn  = f_dnFrac(intLen)
+
+var float lastIntHi = na
+var float lastIntLo = na
+if intUp
+    lastIntHi := high[intLen]
+if intDn
+    lastIntLo := low[intLen]
+
+// ═══════════════════════ LIQUIDITY POOLS ═════════════════════════════════
+// type: 0 swing · 1 equal H/L · 2 asia · 3 prev day
+var array<float> hiPx = array.new<float>()
+var array<int>   hiTy = array.new<int>()
+var array<int>   hiBr = array.new<int>()
+var array<line>  hiLn = array.new<line>()
+var array<label> hiLb = array.new<label>()
+var array<float> loPx = array.new<float>()
+var array<int>   loTy = array.new<int>()
+var array<int>   loBr = array.new<int>()
+var array<line>  loLn = array.new<line>()
+var array<label> loLb = array.new<label>()
+
+f_addHi(px, b, ty, txt) =>
+    ln = drawPools ? line.new(b, px, bar_index, px, color = color.new(cRed, 45), style = line.style_dotted) : na
+    lb = drawPools ? label.new(bar_index, px, txt, style = label.style_none, textcolor = color.new(cRed, 25), size = size.tiny) : na
+    array.push(hiPx, px)
+    array.push(hiTy, ty)
+    array.push(hiBr, b)
+    array.push(hiLn, ln)
+    array.push(hiLb, lb)
+    if array.size(hiPx) > maxLiq
+        line.delete(array.shift(hiLn))
+        label.delete(array.shift(hiLb))
+        array.shift(hiPx)
+        array.shift(hiTy)
+        array.shift(hiBr)
+
+f_addLo(px, b, ty, txt) =>
+    ln = drawPools ? line.new(b, px, bar_index, px, color = color.new(cGrn, 45), style = line.style_dotted) : na
+    lb = drawPools ? label.new(bar_index, px, txt, style = label.style_none, textcolor = color.new(cGrn, 25), size = size.tiny) : na
+    array.push(loPx, px)
+    array.push(loTy, ty)
+    array.push(loBr, b)
+    array.push(loLn, ln)
+    array.push(loLb, lb)
+    if array.size(loPx) > maxLiq
+        line.delete(array.shift(loLn))
+        label.delete(array.shift(loLb))
+        array.shift(loPx)
+        array.shift(loTy)
+        array.shift(loBr)
+
+var float lastPoolHi = na
+var float lastPoolLo = na
+if poolUp
+    px = high[swLen]
+    eqh = not na(lastPoolHi) and math.abs(px - lastPoolHi) <= eqTol * atrV
+    f_addHi(px, bar_index - swLen, eqh ? 1 : 0, eqh ? "EQH" : "BSL")
+    lastPoolHi := px
+if poolDn
+    px = low[swLen]
+    eql = not na(lastPoolLo) and math.abs(px - lastPoolLo) <= eqTol * atrV
+    f_addLo(px, bar_index - swLen, eql ? 1 : 0, eql ? "EQL" : "SSL")
+    lastPoolLo := px
+
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+if timeframe.isintraday and newDay and not na(pdh)
+    f_addHi(pdh, bar_index, 3, "PDH")
+    f_addLo(pdl, bar_index, 3, "PDL")
+
+var float asiaHi = na
+var float asiaLo = na
+if inASIA
+    asiaHi := asiaStart ? high : math.max(asiaHi, high)
+    asiaLo := asiaStart ? low : math.min(asiaLo, low)
+if timeframe.isintraday and asiaEnd and not na(asiaHi)
+    f_addHi(asiaHi, bar_index, 2, "ASIA H")
+    f_addLo(asiaLo, bar_index, 2, "ASIA L")
+
+// ═══════════════════ SESSION RANGE — THE GATE ════════════════════════════
+f_nearHi(ref) =>
+    float bp = na
+    int bb = na
+    int bt = -1
+    if array.size(hiPx) > 0
+        for i = 0 to array.size(hiPx) - 1
+            p = array.get(hiPx, i)
+            if p > ref and (na(bp) or p < bp)
+                bp := p
+                bb := array.get(hiBr, i)
+                bt := array.get(hiTy, i)
+    [bp, bb, bt]
+
+f_nearLo(ref) =>
+    float bp = na
+    int bb = na
+    int bt = -1
+    if array.size(loPx) > 0
+        for i = 0 to array.size(loPx) - 1
+            p = array.get(loPx, i)
+            if p < ref and (na(bp) or p > bp)
+                bp := p
+                bb := array.get(loBr, i)
+                bt := array.get(loTy, i)
+    [bp, bb, bt]
+
+kzStart = (inNY and not inNY[1]) or (inLON and not inLON[1])
+
+var float kzHi = na
+var float kzLo = na
+var int   kzHiBar = na
+var int   kzLoBar = na
+var int   kzHiTy = -1
+var int   kzLoTy = -1
+var bool  kzUsedUp = false
+var bool  kzUsedDn = false
+var box   kzBox = na
+
+if kzStart
+    [hp, hb, hty] = f_nearHi(close)
+    [lp, lb, lty] = f_nearLo(close)
+    kzHi := hp
+    kzLo := lp
+    kzHiBar := hb
+    kzLoBar := lb
+    kzHiTy := hty
+    kzLoTy := lty
+    kzUsedUp := false
+    kzUsedDn := false
+    if drawKZ and not na(hp) and not na(lp)
+        kzBox := box.new(bar_index, hp, bar_index + 1, lp, border_color = color.new(color.yellow, 30), border_width = 2, bgcolor = color.new(color.yellow, 96), text = "SESSION RANGE", text_color = color.new(color.yellow, 30), text_size = size.tiny, text_halign = text.align_right, text_valign = text.align_bottom)
+
+if inKZ and rangeMode == "Develop with session" and not kzStart
+    if not kzUsedUp
+        [hp2, hb2, hty2] = f_nearHi(close)
+        if not na(hp2)
+            kzHi := hp2
+            kzHiBar := hb2
+            kzHiTy := hty2
+    if not kzUsedDn
+        [lp2, lb2, lty2] = f_nearLo(close)
+        if not na(lp2)
+            kzLo := lp2
+            kzLoBar := lb2
+            kzLoTy := lty2
+
+if inKZ and not na(kzBox)
+    box.set_right(kzBox, bar_index + 1)
+    if rangeMode == "Develop with session"
+        box.set_top(kzBox, nz(kzHi, box.get_top(kzBox)))
+        box.set_bottom(kzBox, nz(kzLo, box.get_bottom(kzBox)))
+
+// ─── sweep engine ───
+grabUp = false
+grabDn = false
+float grabUpPx = na
+float grabDnPx = na
+int grabUpTy = -1
+int grabDnTy = -1
+int grabUpAge = 0
+int grabDnAge = 0
+
+if array.size(hiPx) > 0
+    for i = array.size(hiPx) - 1 to 0
+        px = array.get(hiPx, i)
+        ty = array.get(hiTy, i)
+        ln = array.get(hiLn, i)
+        if not na(ln)
+            line.set_x2(ln, bar_index + 2)
+        if high > px
+            grabUp := true
+            if ty > grabUpTy
+                grabUpTy := ty
+                grabUpPx := px
+                grabUpAge := bar_index - array.get(hiBr, i)
+            if not na(ln)
+                line.set_style(ln, line.style_solid)
+                line.set_color(ln, color.new(cRed, 65))
+            lb = array.get(hiLb, i)
+            if not na(lb)
+                label.set_text(lb, "✕" + label.get_text(lb))
+                label.set_x(lb, bar_index)
+            array.remove(hiPx, i)
+            array.remove(hiTy, i)
+            array.remove(hiBr, i)
+            array.remove(hiLn, i)
+            array.remove(hiLb, i)
+
+if array.size(loPx) > 0
+    for i = array.size(loPx) - 1 to 0
+        px = array.get(loPx, i)
+        ty = array.get(loTy, i)
+        ln = array.get(loLn, i)
+        if not na(ln)
+            line.set_x2(ln, bar_index + 2)
+        if low < px
+            grabDn := true
+            if ty > grabDnTy
+                grabDnTy := ty
+                grabDnPx := px
+                grabDnAge := bar_index - array.get(loBr, i)
+            if not na(ln)
+                line.set_style(ln, line.style_solid)
+                line.set_color(ln, color.new(cGrn, 65))
+            lb = array.get(loLb, i)
+            if not na(lb)
+                label.set_text(lb, "✕" + label.get_text(lb))
+                label.set_x(lb, bar_index)
+            array.remove(loPx, i)
+            array.remove(loTy, i)
+            array.remove(loBr, i)
+            array.remove(loLn, i)
+            array.remove(loLb, i)
+
+// ═══ THE GATE ═══ pools above still draw and still get struck through; they
+// simply cannot ARM anything unless they are this session's range edge.
+rngW = not na(kzHi) and not na(kzLo) and atrV > 0 ? (kzHi - kzLo) / atrV : na
+if kzGate
+    gU = not na(kzHi) and inKZ and high > kzHi and not (oneRaid and kzUsedUp)
+    gD = not na(kzLo) and inKZ and low < kzLo and not (oneRaid and kzUsedDn)
+    if gU
+        kzUsedUp := true
+    if gD
+        kzUsedDn := true
+    grabUp := gU
+    grabDn := gD
+    grabUpPx := gU ? kzHi : na
+    grabDnPx := gD ? kzLo : na
+    grabUpTy := gU ? kzHiTy : -1
+    grabDnTy := gD ? kzLoTy : -1
+    grabUpAge := gU and not na(kzHiBar) ? bar_index - kzHiBar : 0
+    grabDnAge := gD and not na(kzLoBar) ? bar_index - kzLoBar : 0
+
+// ═══════════════════ DAILY BIAS / PREMIUM-DISCOUNT ═══════════════════════
+f_htf() =>
+    var float a1 = na
+    var float a2 = na
+    var float b1 = na
+    var float b2 = na
+    h = ta.pivothigh(dPiv, dPiv)
+    l = ta.pivotlow(dPiv, dPiv)
+    if not na(h)
+        a2 := a1
+        a1 := h
+    if not na(l)
+        b2 := b1
+        b1 := l
+    [a1, a2, b1, b2]
+
+[H1, H2, L1, L2] = request.security(syminfo.tickerid, biasTF, f_htf(), lookahead = barmerge.lookahead_off)
+strBull = not na(H2) and not na(L2) and H1 > H2 and L1 > L2
+strBear = not na(H2) and not na(L2) and H1 < H2 and L1 < L2
+eqD  = (math.max(nz(H1, high), nz(H2, high)) + math.min(nz(L1, low), nz(L2, low))) / 2
+prem = close > eqD
+// v0.7 required HH+HL to call a bias, so "with the draw" fired on 8% of trades
+// and the row was unreadable. Structure decides when it speaks; otherwise the
+// dealing range does. Every trade now gets a direction, so the split is ~50/50.
+biasBull = strBull or (not strBear and not prem)
+biasBear = not biasBull
+plot(drawBias ? eqD : na, "Daily equilibrium", color.new(color.gray, 50), 1, plot.style_linebr)
+
+// ═══════════════════════ NEW AXES ═══════════════════════════════════════
+// Efficiency ratio over ctxBars. Low = price went nowhere = a range existed
+// = something to spring from. High = trend = the "grab" was just a breakdown.
+erNum = math.abs(close - close[ctxBars])
+erDen = math.sum(math.abs(close - close[1]), ctxBars)
+erV   = erDen > 0 ? erNum / erDen : na
+
+// Which raid of the day is this? ICT's judas is the FIRST manipulation.
+// We have been taking all of them and averaging them together.
+var int grabSeq = 0
+if newDay
+    grabSeq := 0
+if grabUp or grabDn
+    grabSeq += 1
+
+// ═══════════════════════ MEDIAN TAGS ═════════════════════════════════════
+// Returns -1 unknown · 0 below median · 1 at/above median. Always ~50/50.
+var array<float> mWick = array.new<float>()
+var array<float> mBody = array.new<float>()
+var array<float> mCoil = array.new<float>()
+var array<float> mAge  = array.new<float>()
+var array<float> mER   = array.new<float>()
+var array<float> mRngW = array.new<float>()
+
+f_medTag(arr, v) =>
+    int t = -1
+    if array.size(arr) >= warmN and not na(v)
+        t := v >= array.median(arr) ? 1 : 0
+    if not na(v)
+        array.push(arr, v)
+        if array.size(arr) > 300
+            array.shift(arr)
+    t
+
+f_coilRatio(j) =>
+    hh = high[j + 3]
+    ll = low[j + 3]
+    for k = 1 to consBars - 1
+        hh := math.max(hh, high[j + 3 + k])
+        ll := math.min(ll, low[j + 3 + k])
+    (hh - ll) / atrV
+
+f_kzTag() =>
+    inNY ? 0 : inLON ? 1 : inASIA ? 2 : 3
+
+// ═══════════════════════ SCOREBOARD STORAGE ══════════════════════════════
+//  0 ALL | 1/2 KZ | 3/4 bias | 5/6 P/D | 7/8 OB | 9/10 wick | 11/12 body
+//  13/14 coil | 15/16 void | 17/18 pool age | 19/20 OTE
+//  21/22 range context | 23/24 first grab of day | 25/26 wide range | 27-50 hour
+var array<int>   cNa = array.new_int(51, 0)     // every trade
+var array<int>   cNr = array.new_int(51, 0)     // resolved only (target or stop)
+var array<int>   cW  = array.new_int(51, 0)
+var array<float> cR  = array.new_float(51, 0.0)
+var array<float> cRR = array.new_float(51, 0.0)
+var int nTimeout = 0                            // incremented at the call sites, never inside f_log (CE10088)
+var array<int> cTo = array.new_int(1, 0)      // timeout counter (array: globals cannot be assigned inside a function)
+
+f_cell(id, r, win, rr, res) =>
+    if id >= 0 and id < 51
+        array.set(cNa, id, array.get(cNa, id) + 1)
+        array.set(cR, id, array.get(cR, id) + r)
+        if res
+            array.set(cNr, id, array.get(cNr, id) + 1)
+            array.set(cRR, id, array.get(cRR, id) + rr)
+            if win
+                array.set(cW, id, array.get(cW, id) + 1)
+
+f_pair(id1, id0, t, r, win, rr, res) =>
+    if t == 1
+        f_cell(id1, r, win, rr, res)
+    else if t == 0
+        f_cell(id0, r, win, rr, res)
+
+f_log(r, win, rr, res, kz, biasW, pdOk, obY, wkT, bdT, clT, voidY, agT, oteY, rgT, fstY, rwT, hr) =>
+    f_cell(0, r, win, rr, res)
+    f_cell(kz == 0 or kz == 1 ? 1 : 2, r, win, rr, res)
+    f_cell(biasW ? 3 : 4, r, win, rr, res)
+    f_cell(pdOk ? 5 : 6, r, win, rr, res)
+    f_cell(obY ? 7 : 8, r, win, rr, res)
+    f_pair(9, 10, wkT, r, win, rr, res)
+    f_pair(11, 12, bdT, r, win, rr, res)
+    f_pair(13, 14, clT, r, win, rr, res)
+    f_cell(voidY ? 15 : 16, r, win, rr, res)
+    f_pair(17, 18, agT, r, win, rr, res)
+    f_cell(oteY ? 19 : 20, r, win, rr, res)
+    f_pair(21, 22, rgT, r, win, rr, res)
+    f_cell(fstY ? 23 : 24, r, win, rr, res)
+    f_pair(25, 26, rwT, r, win, rr, res)
+    if hr >= 0 and hr <= 23
+        f_cell(27 + hr, r, win, rr, res)
+
+// ═══════════════════════ EXIT REPLAY (shadow tracker) ════════════════════
+//  Runs independently of the live trade. Follows every entry for mfeWin bars.
+//  MFE is frozen the moment the 1R stop is hit, so "did T come before the
+//  stop" is answered exactly rather than guessed from unordered MAE/MFE.
+var array<int>   shDir  = array.new<int>()
+var array<float> shEnt  = array.new<float>()
+var array<float> shRisk = array.new<float>()
+var array<int>   shLeft = array.new<int>()
+var array<float> shMfe  = array.new<float>()
+var array<int>   shBar  = array.new<int>()
+var array<int>   shTag  = array.new<int>()
+
+var array<float> tgts = array.from(0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
+
+var array<int>   rN   = array.new_int(6, 0)
+var array<int>   rHit = array.new_int(6, 0)
+var array<float> rSum = array.new_float(6, 0.0)
+var array<int>   qN   = array.new_int(6, 0)
+var array<int>   qHit = array.new_int(6, 0)
+var array<float> qSum = array.new_float(6, 0.0)
+
+// 1 = trade carries the tag · 0 = does not · -1 = tag undefined, drop it
+f_filt(kz, biasW, pdOk, obY, wkT, bdT, clT, voidY, agT, oteY, rgT, fstY, rwT) =>
+    switch rpFilter
+        "Stacked IMB"       => voidY ? 1 : 0
+        "Big displacement"  => bdT
+        "Old liquidity"     => agT
+        "In killzone"       => kz == 0 or kz == 1 ? 1 : 0
+        "With the draw"     => biasW ? 1 : 0
+        "Right P/D"         => pdOk ? 1 : 0
+        "Valid OB"          => obY ? 1 : 0
+        "Big wick"          => wkT
+        "Tight coil"        => clT
+        "OTE .62-.79"       => oteY ? 1 : 0
+        "Range before grab" => rgT
+        "First grab of day" => fstY ? 1 : 0
+        "Wide range"        => rwT
+        => 1
+
+f_replay(mfe, risk, stopped, endR, tagOn) =>
+    cst = costPts / risk
+    if tagOn >= 0
+        for k = 0 to 5
+            T = array.get(tgts, k)
+            hit = mfe >= T
+            r = hit ? T - cst : stopped ? -1.0 - cst : endR - cst
+            if tagOn == 1
+                array.set(rN, k, array.get(rN, k) + 1)
+                array.set(rSum, k, array.get(rSum, k) + r)
+                if hit
+                    array.set(rHit, k, array.get(rHit, k) + 1)
+            else
+                array.set(qN, k, array.get(qN, k) + 1)
+                array.set(qSum, k, array.get(qSum, k) + r)
+                if hit
+                    array.set(qHit, k, array.get(qHit, k) + 1)
+
+// ═══════════════════════════ BEAR STATE ══════════════════════════════════
+var int   beSt = 0
+var float beLvl = na
+var int   beTy = 0
+var int   beAge = 0
+var float beHi = na
+var float beBody = na
+var float beWickV = na
+var float beProt = na
+var float beRunLo = na
+var float beRngHi = na
+var float beRngLo = na
+var float beFvgT = na
+var float beFvgB = na
+var float beRet = na
+var float beCoilV = na
+var float beBodyV = na
+var float beEnt = na
+var float beStp = na
+var float beTgt = na
+var float beRR = na
+var int   beCnt = 0
+var int   beBar = na
+var int   beEntBar = na
+var bool  beOB = false
+var bool  beVoid = false
+var int   beKz = 3
+var int   beHr = na
+var bool  beBias = false
+var bool  bePD = false
+var bool  beOTE = false
+var int   beWkT = -1
+var int   beBdT = -1
+var int   beClT = -1
+var int   beAgT = -1
+var int   beRgT = -1
+var float beEdge = na
+var float beRngW = na
+var int   beRwT = -1
+var float beER = na
+var int   beSeq = 0
+var int   beNF = 0
+var bool  beFst = false
+
+if beSt == 0
+    if grabUp and not na(lastIntLo)
+        beSt := 1
+        beLvl := grabUpPx
+        beTy := grabUpTy
+        beAge := grabUpAge
+        beHi := high
+        beBody := math.max(open, close)
+        beER := erV[1]
+        beEdge := kzLo
+        beRngW := rngW
+        beSeq := grabSeq
+        beCnt := 0
+        if drawStub
+            line.new(bar_index, grabUpPx, bar_index + 3, grabUpPx, color = color.new(cRed, 20), width = 2)
+
+else if beSt == 1
+    if high > beHi
+        beHi := high
+        beBody := math.max(open, close)
+    beCnt += 1
+    if close < beLvl
+        wick = beHi - beBody
+        if wick < wickMin * atrV
+            beSt := 0
+        else
+            beWickV := wick / atrV
+            beProt := lastIntLo
+            beRunLo := low
+            beBar := bar_index
+            beCnt := 0
+            beSt := na(beProt) ? 0 : 2
+    else if beCnt > sweepWin
+        beSt := 0
+
+else if beSt == 2
+    beRunLo := math.min(beRunLo, low)
+    beCnt += 1
+    bosHit = bosUseClose ? close < beProt : low < beProt
+    if bosHit and disp
+        beBodyV := bodyV / atrV
+        beRngHi := beHi
+        beRngLo := beRunLo
+        rng = beRngHi - beRngLo
+        legLen = math.min(bar_index - beBar + 2, 60)
+        float bT = na
+        float bB = na
+        float bD = na
+        float bC = na
+        int nF = 0
+        if rng > 0
+            for j = 0 to legLen
+                t = low[j + 2]
+                b = high[j]
+                if t > b
+                    nF += 1
+                    m = (t + b) / 2
+                    d = (m - beRngLo) / rng
+                    if d <= 1.0 and (na(bD) or d > bD)
+                        bT := t
+                        bB := b
+                        bD := d
+                        bC := f_coilRatio(j)
+        beFvgT := bT
+        beFvgB := bB
+        beRet := bD
+        beCoilV := bC
+        beNF := nF
+        beVoid := nF > 1
+        bool obFound = false
+        for j = 1 to legLen
+            if close[j] > open[j] and close[j - 1] < open[j - 1] and close[j - 1] < open[j] and math.abs(close[j - 1] - open[j - 1]) >= 0.6 * atrV
+                obFound := true
+                if drawSetup
+                    box.new(bar_index - j, high[j], bar_index + 12, low[j], border_color = color.new(cRed, 45), bgcolor = color.new(cRed, 90), text = "OB", text_size = size.tiny, text_color = color.new(cRed, 25))
+                break
+        beOB := obFound
+        if na(bT)
+            beSt := 0
+        else
+            beCnt := 0
+            beSt := 3
+            if drawSetup
+                box.new(bar_index - 2, bT, bar_index + 12, bB, border_color = color.new(cRed, 50), bgcolor = color.new(cRed, 88), text = "POI", text_size = size.tiny, text_color = color.new(cRed, 30))
+                label.new(bar_index, low, "MSS", style = label.style_label_up, color = color.new(cRed, 40), textcolor = color.white, size = size.tiny)
+                if beVoid
+                    box.new(beBar, beRngHi, bar_index + 12, beRngLo, border_color = color.new(cPurp, 70), border_style = line.style_dashed, bgcolor = color.new(cPurp, 95), text = str.tostring(nF) + "× IMB", text_size = size.tiny, text_color = color.new(cPurp, 40), text_halign = text.align_left, text_valign = text.align_top)
+    else if beCnt > maxBarsToBos
+        beSt := 0
+
+else if beSt == 3
+    beCnt += 1
+    lvl = switch retestMode
+        "Edge" => beFvgB
+        "50%"  => (beFvgT + beFvgB) / 2
+        => beFvgT
+    if high >= lvl
+        e = lvl
+        s = stopMode == "Sweep extreme" ? beRngHi : beFvgT
+        g = targetMode == "Session range edge" and not na(beEdge) ? beEdge : targetMode == "Opposing liquidity" ? beRngLo : e - fixedR * (s - e)
+        if s > e and e > g
+            beEnt := e
+            beStp := s
+            beTgt := g
+            beRR := (e - g) / (s - e)
+            beKz := f_kzTag()
+            beHr := hour(time, tzS)
+            beBias := biasBear
+            bePD := prem
+            beOTE := beRet >= 0.62 and beRet < 0.79
+            beWkT := f_medTag(mWick, beWickV)
+            beBdT := f_medTag(mBody, beBodyV)
+            ct = f_medTag(mCoil, beCoilV)
+            beClT := ct == 1 ? 0 : ct == 0 ? 1 : -1        // tight coil = BELOW median
+            beAgT := f_medTag(mAge, beAge * 1.0)
+            rt = f_medTag(mER, beER)
+            beRgT := rt == 1 ? 0 : rt == 0 ? 1 : -1        // ranging = ER BELOW median
+            beFst := beSeq <= 1
+            beRwT := f_medTag(mRngW, beRngW)
+            beEntBar := bar_index
+            beCnt := 0
+            beSt := 4
+            array.push(shDir, -1)
+            array.push(shEnt, e)
+            array.push(shRisk, s - e)
+            array.push(shLeft, mfeWin)
+            array.push(shMfe, 0.0)
+            array.push(shBar, bar_index)
+            array.push(shTag, f_filt(beKz, beBias, bePD, beOB, beWkT, beBdT, beClT, beVoid, beAgT, beOTE, beRgT, beFst, beRwT))
+            if drawTrades
+                label.new(bar_index, e, "S " + str.tostring(beRet, "#.##") + " | " + str.tostring(beRR, "#.#") + "R", style = label.style_label_down, color = color.new(color.maroon, 20), textcolor = color.white, size = size.tiny)
+        else
+            beSt := 0
+    else if beCnt > maxBarsToRetest
+        beSt := 0
+
+else if beSt == 4
+    beCnt += 1
+    risk = beStp - beEnt
+    if high >= beStp
+        r = -1.0 - costPts / risk
+        f_log(r, false, beRR, true, beKz, beBias, bePD, beOB, beWkT, beBdT, beClT, beVoid, beAgT, beOTE, beRgT, beFst, beRwT, beHr)
+        if drawTrades
+            box.new(beEntBar, beStp, bar_index, beEnt, border_color = color.new(cRed, 60), bgcolor = color.new(cRed, 85))
+            label.new(bar_index, beStp, str.tostring(r, "#.#") + "R", style = label.style_none, textcolor = cRed, size = size.tiny)
+        beSt := 0
+    else if low <= beTgt
+        r = (beEnt - beTgt) / risk - costPts / risk
+        f_log(r, true, beRR, true, beKz, beBias, bePD, beOB, beWkT, beBdT, beClT, beVoid, beAgT, beOTE, beRgT, beFst, beRwT, beHr)
+        if drawTrades
+            box.new(beEntBar, beEnt, bar_index, beTgt, border_color = color.new(cGrn, 60), bgcolor = color.new(cGrn, 85))
+            label.new(bar_index, beTgt, "+" + str.tostring(r, "#.#") + "R", style = label.style_none, textcolor = cGrn, size = size.tiny)
+        beSt := 0
+    else if beCnt > maxHold
+        r = (beEnt - close) / risk - costPts / risk
+        f_log(r, false, beRR, false, beKz, beBias, bePD, beOB, beWkT, beBdT, beClT, beVoid, beAgT, beOTE, beRgT, beFst, beRwT, beHr)
+        nTimeout += 1
+        if drawTrades
+            label.new(bar_index, close, "t " + str.tostring(r, "#.#") + "R", style = label.style_none, textcolor = color.gray, size = size.tiny)
+        beSt := 0
+
+// ═══════════════════════════ BULL STATE ══════════════════════════════════
+var int   buSt = 0
+var float buLvl = na
+var int   buTy = 0
+var int   buAge = 0
+var float buLo = na
+var float buBody = na
+var float buWickV = na
+var float buProt = na
+var float buRunHi = na
+var float buRngHi = na
+var float buRngLo = na
+var float buFvgT = na
+var float buFvgB = na
+var float buRet = na
+var float buCoilV = na
+var float buBodyV = na
+var float buEnt = na
+var float buStp = na
+var float buTgt = na
+var float buRR = na
+var int   buCnt = 0
+var int   buBar = na
+var int   buEntBar = na
+var bool  buOB = false
+var bool  buVoid = false
+var int   buKz = 3
+var int   buHr = na
+var bool  buBias = false
+var bool  buPD = false
+var bool  buOTE = false
+var int   buWkT = -1
+var int   buBdT = -1
+var int   buClT = -1
+var int   buAgT = -1
+var int   buRgT = -1
+var float buEdge = na
+var float buRngW = na
+var int   buRwT = -1
+var float buER = na
+var int   buSeq = 0
+var int   buNF = 0
+var bool  buFst = false
+
+if buSt == 0
+    if grabDn and not na(lastIntHi)
+        buSt := 1
+        buLvl := grabDnPx
+        buTy := grabDnTy
+        buAge := grabDnAge
+        buLo := low
+        buBody := math.min(open, close)
+        buER := erV[1]
+        buEdge := kzHi
+        buRngW := rngW
+        buSeq := grabSeq
+        buCnt := 0
+        if drawStub
+            line.new(bar_index, grabDnPx, bar_index + 3, grabDnPx, color = color.new(cGrn, 20), width = 2)
+
+else if buSt == 1
+    if low < buLo
+        buLo := low
+        buBody := math.min(open, close)
+    buCnt += 1
+    if close > buLvl
+        wick = buBody - buLo
+        if wick < wickMin * atrV
+            buSt := 0
+        else
+            buWickV := wick / atrV
+            buProt := lastIntHi
+            buRunHi := high
+            buBar := bar_index
+            buCnt := 0
+            buSt := na(buProt) ? 0 : 2
+    else if buCnt > sweepWin
+        buSt := 0
+
+else if buSt == 2
+    buRunHi := math.max(buRunHi, high)
+    buCnt += 1
+    bosHit = bosUseClose ? close > buProt : high > buProt
+    if bosHit and disp
+        buBodyV := bodyV / atrV
+        buRngLo := buLo
+        buRngHi := buRunHi
+        rng = buRngHi - buRngLo
+        legLen = math.min(bar_index - buBar + 2, 60)
+        float bT = na
+        float bB = na
+        float bD = na
+        float bC = na
+        int nF = 0
+        if rng > 0
+            for j = 0 to legLen
+                b = high[j + 2]
+                t = low[j]
+                if t > b
+                    nF += 1
+                    m = (t + b) / 2
+                    d = (buRngHi - m) / rng
+                    if d <= 1.0 and (na(bD) or d > bD)
+                        bT := t
+                        bB := b
+                        bD := d
+                        bC := f_coilRatio(j)
+        buFvgT := bT
+        buFvgB := bB
+        buRet := bD
+        buCoilV := bC
+        buNF := nF
+        buVoid := nF > 1
+        bool obFound = false
+        for j = 1 to legLen
+            if close[j] < open[j] and close[j - 1] > open[j - 1] and close[j - 1] > open[j] and math.abs(close[j - 1] - open[j - 1]) >= 0.6 * atrV
+                obFound := true
+                if drawSetup
+                    box.new(bar_index - j, high[j], bar_index + 12, low[j], border_color = color.new(cGrn, 45), bgcolor = color.new(cGrn, 90), text = "OB", text_size = size.tiny, text_color = color.new(cGrn, 25))
+                break
+        buOB := obFound
+        if na(bT)
+            buSt := 0
+        else
+            buCnt := 0
+            buSt := 3
+            if drawSetup
+                box.new(bar_index - 2, bT, bar_index + 12, bB, border_color = color.new(cGrn, 50), bgcolor = color.new(cGrn, 88), text = "POI", text_size = size.tiny, text_color = color.new(cGrn, 30))
+                label.new(bar_index, high, "MSS", style = label.style_label_down, color = color.new(cGrn, 40), textcolor = color.white, size = size.tiny)
+                if buVoid
+                    box.new(buBar, buRngHi, bar_index + 12, buRngLo, border_color = color.new(cPurp, 70), border_style = line.style_dashed, bgcolor = color.new(cPurp, 95), text = str.tostring(nF) + "× IMB", text_size = size.tiny, text_color = color.new(cPurp, 40), text_halign = text.align_left, text_valign = text.align_top)
+    else if buCnt > maxBarsToBos
+        buSt := 0
+
+else if buSt == 3
+    buCnt += 1
+    lvl = switch retestMode
+        "Edge" => buFvgT
+        "50%"  => (buFvgT + buFvgB) / 2
+        => buFvgB
+    if low <= lvl
+        e = lvl
+        s = stopMode == "Sweep extreme" ? buRngLo : buFvgB
+        g = targetMode == "Session range edge" and not na(buEdge) ? buEdge : targetMode == "Opposing liquidity" ? buRngHi : e + fixedR * (e - s)
+        if s < e and e < g
+            buEnt := e
+            buStp := s
+            buTgt := g
+            buRR := (g - e) / (e - s)
+            buKz := f_kzTag()
+            buHr := hour(time, tzS)
+            buBias := biasBull
+            buPD := not prem
+            buOTE := buRet >= 0.62 and buRet < 0.79
+            buWkT := f_medTag(mWick, buWickV)
+            buBdT := f_medTag(mBody, buBodyV)
+            ct = f_medTag(mCoil, buCoilV)
+            buClT := ct == 1 ? 0 : ct == 0 ? 1 : -1
+            buAgT := f_medTag(mAge, buAge * 1.0)
+            rt = f_medTag(mER, buER)
+            buRgT := rt == 1 ? 0 : rt == 0 ? 1 : -1        // ranging = ER BELOW median
+            buFst := buSeq <= 1
+            buRwT := f_medTag(mRngW, buRngW)
+            buEntBar := bar_index
+            buCnt := 0
+            buSt := 4
+            array.push(shDir, 1)
+            array.push(shEnt, e)
+            array.push(shRisk, e - s)
+            array.push(shLeft, mfeWin)
+            array.push(shMfe, 0.0)
+            array.push(shBar, bar_index)
+            array.push(shTag, f_filt(buKz, buBias, buPD, buOB, buWkT, buBdT, buClT, buVoid, buAgT, buOTE, buRgT, buFst, buRwT))
+            if drawTrades
+                label.new(bar_index, e, "L " + str.tostring(buRet, "#.##") + " | " + str.tostring(buRR, "#.#") + "R", style = label.style_label_up, color = color.new(color.green, 20), textcolor = color.white, size = size.tiny)
+        else
+            buSt := 0
+    else if buCnt > maxBarsToRetest
+        buSt := 0
+
+else if buSt == 4
+    buCnt += 1
+    risk = buEnt - buStp
+    if low <= buStp
+        r = -1.0 - costPts / risk
+        f_log(r, false, buRR, true, buKz, buBias, buPD, buOB, buWkT, buBdT, buClT, buVoid, buAgT, buOTE, buRgT, buFst, buRwT, buHr)
+        if drawTrades
+            box.new(buEntBar, buEnt, bar_index, buStp, border_color = color.new(cRed, 60), bgcolor = color.new(cRed, 85))
+            label.new(bar_index, buStp, str.tostring(r, "#.#") + "R", style = label.style_none, textcolor = cRed, size = size.tiny)
+        buSt := 0
+    else if high >= buTgt
+        r = (buTgt - buEnt) / risk - costPts / risk
+        f_log(r, true, buRR, true, buKz, buBias, buPD, buOB, buWkT, buBdT, buClT, buVoid, buAgT, buOTE, buRgT, buFst, buRwT, buHr)
+        if drawTrades
+            box.new(buEntBar, buTgt, bar_index, buEnt, border_color = color.new(cGrn, 60), bgcolor = color.new(cGrn, 85))
+            label.new(bar_index, buTgt, "+" + str.tostring(r, "#.#") + "R", style = label.style_none, textcolor = cGrn, size = size.tiny)
+        buSt := 0
+    else if buCnt > maxHold
+        r = (close - buEnt) / risk - costPts / risk
+        f_log(r, false, buRR, false, buKz, buBias, buPD, buOB, buWkT, buBdT, buClT, buVoid, buAgT, buOTE, buRgT, buFst, buRwT, buHr)
+        nTimeout += 1
+        if drawTrades
+            label.new(bar_index, close, "t " + str.tostring(r, "#.#") + "R", style = label.style_none, textcolor = color.gray, size = size.tiny)
+        buSt := 0
+
+// ═══════════════════ SHADOW TRACKER — runs every bar ═════════════════════
+if array.size(shDir) > 0
+    for i = array.size(shDir) - 1 to 0
+        if array.get(shBar, i) != bar_index
+            d = array.get(shDir, i)
+            e = array.get(shEnt, i)
+            rk = array.get(shRisk, i)
+            fav = d == -1 ? (e - low) / rk : (high - e) / rk
+            adv = d == -1 ? (high - e) / rk : (e - low) / rk
+            array.set(shMfe, i, math.max(array.get(shMfe, i), fav))
+            if adv >= 1.0
+                f_replay(array.get(shMfe, i), rk, true, -1.0, array.get(shTag, i))
+                array.remove(shDir, i)
+                array.remove(shEnt, i)
+                array.remove(shRisk, i)
+                array.remove(shLeft, i)
+                array.remove(shMfe, i)
+                array.remove(shBar, i)
+                array.remove(shTag, i)
+            else
+                array.set(shLeft, i, array.get(shLeft, i) - 1)
+                if array.get(shLeft, i) <= 0
+                    endR = d == -1 ? (e - close) / rk : (close - e) / rk
+                    f_replay(array.get(shMfe, i), rk, false, endR, array.get(shTag, i))
+                    array.remove(shDir, i)
+                    array.remove(shEnt, i)
+                    array.remove(shRisk, i)
+                    array.remove(shLeft, i)
+                    array.remove(shMfe, i)
+                    array.remove(shBar, i)
+                    array.remove(shTag, i)
+
+// ═══════════════════════ KILLZONE / DAY DRAWING ══════════════════════════
+f_kzbox(inSess, isStart, col, txt) =>
+    var box b = na
+    if isStart
+        b := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 55), bgcolor = color.new(col, 94), text = txt, text_color = color.new(col, 40), text_size = size.tiny, text_halign = text.align_left, text_valign = text.align_top)
+    if inSess and not na(b)
+        box.set_right(b, bar_index + 1)
+        box.set_top(b, math.max(box.get_top(b), high))
+        box.set_bottom(b, math.min(box.get_bottom(b), low))
+    b
+
+nyStart  = inNY and not inNY[1]
+lonStart = inLON and not inLON[1]
+if drawKZ and timeframe.isintraday
+    f_kzbox(inNY, nyStart, color.blue, "NY")
+    f_kzbox(inLON, lonStart, color.orange, "LON")
+    f_kzbox(inASIA, asiaStart, color.gray, "ASIA")
+
+if drawDay and newDay and timeframe.isintraday
+    line.new(bar_index, low, bar_index, high, extend = extend.both, color = color.new(color.gray, 75), style = line.style_dotted)
+
+// ═══════════════════════════ SCOREBOARD ══════════════════════════════════
+f_nAll(id) => array.get(cNa, id)
+f_nRes(id) => array.get(cNr, id)
+f_winp(id) => array.get(cNr, id) > 0 ? array.get(cW, id) * 100.0 / array.get(cNr, id) : na
+f_be(id)   => array.get(cNr, id) > 0 ? 100.0 / (1.0 + array.get(cRR, id) / array.get(cNr, id)) : na
+f_edge(id) => array.get(cNr, id) > 0 ? array.get(cW, id) * 100.0 / array.get(cNr, id) - 100.0 / (1.0 + array.get(cRR, id) / array.get(cNr, id)) : na
+f_avgR(id) => array.get(cNa, id) > 0 ? array.get(cR, id) / array.get(cNa, id) : na
+
+f_paint(tbl, r, c0, c1, c2, c3, c4, c5, bg, tc) =>
+    table.cell(tbl, 0, r, c0, bgcolor = bg, text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, r, c1, bgcolor = bg, text_color = tc, text_size = size.small)
+    table.cell(tbl, 2, r, c2, bgcolor = bg, text_color = tc, text_size = size.small)
+    table.cell(tbl, 3, r, c3, bgcolor = bg, text_color = tc, text_size = size.small)
+    table.cell(tbl, 4, r, c4, bgcolor = bg, text_color = tc, text_size = size.small)
+    table.cell(tbl, 5, r, c5, bgcolor = bg, text_color = tc, text_size = size.small)
+
+// one row = one question. A against its own complement, ranked on AvgR.
+f_test(tbl, r, lbl, idA, idB) =>
+    nA = f_nRes(idA)
+    nB = f_nRes(idB)
+    rA = f_avgR(idA)
+    rB = f_avgR(idB)
+    eA = f_edge(idA)
+    wA = f_winp(idA)
+    solid = math.min(nA, nB) >= minN
+    d = not na(rA) and not na(rB) ? rA - rB : na
+    bg = na(d) ? color.new(color.gray, 88) : not solid ? color.new(color.gray, 80) : d > 0 ? color.new(color.green, 55) : color.new(color.red, 55)
+    tc = solid ? color.white : color.new(color.silver, 35)
+    f_paint(tbl, r, lbl, str.tostring(nA) + "/" + str.tostring(nB), na(wA) ? "-" : str.tostring(wA, "#"), na(eA) ? "-" : (eA > 0 ? "+" : "") + str.tostring(eA, "#"), na(rA) ? "-" : str.tostring(rA, "#.##"), na(d) ? "-" : (d > 0 ? "+" : "") + str.tostring(d, "#.##"), bg, tc)
+
+if showScore and barstate.islast
+    var table sb = table.new(position.top_right, 6, 19, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
+    aAll = f_nAll(0)
+    nAll = f_nRes(0)
+    rAll = f_avgR(0)
+    eAll = f_edge(0)
+    wAll = f_winp(0)
+    decid = nAll >= minAll
+    f_paint(sb, 0, "HOLY TRINITY v1.0", "n", "Win%", "EDGE", "AvgR", "ΔR", color.navy, color.white)
+    f_paint(sb, 1, "ALL TRADES", str.tostring(nAll) + "/" + str.tostring(aAll), na(wAll) ? "-" : str.tostring(wAll, "#"), na(eAll) ? "-" : (eAll > 0 ? "+" : "") + str.tostring(eAll, "#"), na(rAll) ? "-" : str.tostring(rAll, "#.##") + "R", "", aAll == 0 ? color.new(color.gray, 80) : not decid ? color.new(color.orange, 65) : nz(rAll) > 0 ? color.new(color.green, 35) : color.new(color.red, 35), color.white)
+    f_test(sb, 2,  "In killzone",      1,  2)
+    f_test(sb, 3,  "With the draw",    3,  4)
+    f_test(sb, 4,  "Right P/D side",   5,  6)
+    f_test(sb, 5,  "Valid OB",         7,  8)
+    f_test(sb, 6,  "Big wick",         9,  10)
+    f_test(sb, 7,  "Big displacement", 11, 12)
+    f_test(sb, 8,  "Tight coil",       13, 14)
+    f_test(sb, 9,  "Stacked IMB",      15, 16)
+    f_test(sb, 10, "Old liquidity",    17, 18)
+    f_test(sb, 11, "OTE .62-.79",      19, 20)
+    f_test(sb, 12, "Range before grab", 21, 22)
+    f_test(sb, 13, "First grab of day", 23, 24)
+    f_test(sb, 14, "Wide range",        25, 26)
+    verdict = aAll == 0 ? "no trades yet" : not decid ? "NOT DECIDABLE — need " + str.tostring(minAll) + " resolved, have " + str.tostring(nAll) : nz(rAll) > 0 ? "EDGE " + str.tostring(rAll, "#.##") + "R/trade" : "NO EDGE (" + str.tostring(rAll, "#.##") + "R)"
+    f_paint(sb, 15, verdict, "", "", "", "", "", aAll == 0 or not decid ? color.new(color.orange, 60) : nz(rAll) > 0 ? color.new(color.green, 40) : color.new(color.red, 40), color.white)
+    f_paint(sb, 16, "timeouts " + str.tostring(nTimeout) + " (" + str.tostring(aAll > 0 ? nTimeout * 100.0 / aAll : 0, "#") + "%) · excluded from Win%/EDGE", "", "", "", "", "", color.new(color.gray, 55), color.silver)
+    f_paint(sb, 17, "bars " + str.tostring(bar_index + 1) + " · from " + str.format_time(firstTime, "yyyy-MM-dd", tzS) + " · cost " + str.tostring(costPts), "", "", "", "", "", color.new(color.gray, 55), color.silver)
+    f_paint(sb, 18, "n = resolved/all · ΔR = this minus its opposite · grey = n<" + str.tostring(minN), "", "", "", "", "", color.new(color.gray, 55), color.silver)
+
+// CE10156: Pine only allows function declarations at the TOP level. This lived
+// inside the replay table's for-loop, which is a local scope.
+f_col(ex, n) =>
+    na(ex) or n < minN ? color.new(color.gray, 80) : math.abs(ex) < 3 ? color.new(color.gray, 65) : ex > 0 ? color.new(color.green, 45) : color.new(color.red, 45)
+
+if showReplay and barstate.islast
+    var table rt = table.new(position.bottom_right, 6, 9, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
+    on = rpFilter == "none" ? "ALL" : rpFilter
+    table.cell(rt, 0, 0, "EXIT REPLAY", bgcolor = color.navy, text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(rt, 1, 0, "n", bgcolor = color.new(color.green, 50), text_color = color.white, text_size = size.small)
+    table.cell(rt, 2, 0, "vs RW", bgcolor = color.new(color.green, 50), text_color = color.white, text_size = size.small)
+    table.cell(rt, 3, 0, "n", bgcolor = color.new(color.red, 50), text_color = color.white, text_size = size.small)
+    table.cell(rt, 4, 0, "vs RW", bgcolor = color.new(color.red, 50), text_color = color.white, text_size = size.small)
+    table.cell(rt, 5, 0, "ΔReach", bgcolor = color.navy, text_color = color.white, text_size = size.small)
+    for k = 0 to 5
+        T  = array.get(tgts, k)
+        rw = 100.0 / (1.0 + T)
+        n1 = array.get(rN, k)
+        n0 = array.get(qN, k)
+        h1 = n1 > 0 ? array.get(rHit, k) / n1 * 100 : na
+        h0 = n0 > 0 ? array.get(qHit, k) / n0 * 100 : na
+        e1 = na(h1) ? na : h1 - rw
+        e0 = na(h0) ? na : h0 - rw
+        dd = na(h1) or na(h0) ? na : h1 - h0
+        table.cell(rt, 0, k + 1, "target " + str.tostring(T, "#.#") + "R", bgcolor = color.new(color.gray, 70), text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(rt, 1, k + 1, str.tostring(n1), bgcolor = f_col(e1, n1), text_color = n1 < minN ? color.new(color.silver, 30) : color.white, text_size = size.small)
+        table.cell(rt, 2, k + 1, na(e1) ? "-" : (e1 > 0 ? "+" : "") + str.tostring(e1, "#.#"), bgcolor = f_col(e1, n1), text_color = n1 < minN ? color.new(color.silver, 30) : color.white, text_size = size.small)
+        table.cell(rt, 3, k + 1, str.tostring(n0), bgcolor = f_col(e0, n0), text_color = n0 < minN ? color.new(color.silver, 30) : color.white, text_size = size.small)
+        table.cell(rt, 4, k + 1, na(e0) ? "-" : (e0 > 0 ? "+" : "") + str.tostring(e0, "#.#"), bgcolor = f_col(e0, n0), text_color = n0 < minN ? color.new(color.silver, 30) : color.white, text_size = size.small)
+        table.cell(rt, 5, k + 1, na(dd) ? "-" : (dd > 0 ? "+" : "") + str.tostring(dd, "#.#"), bgcolor = color.new(color.gray, 70), text_color = na(dd) or math.min(n1, n0) < minN ? color.new(color.silver, 30) : dd > 0 ? color.lime : color.red, text_size = size.small)
+    table.cell(rt, 0, 7, "WITH: " + on, bgcolor = color.new(color.green, 55), text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(rt, 1, 7, "", bgcolor = color.new(color.green, 55), text_size = size.small)
+    table.cell(rt, 2, 7, "", bgcolor = color.new(color.green, 55), text_size = size.small)
+    table.cell(rt, 3, 7, "WITHOUT", bgcolor = color.new(color.red, 55), text_color = color.white, text_size = size.small)
+    table.cell(rt, 4, 7, "", bgcolor = color.new(color.red, 55), text_size = size.small)
+    table.cell(rt, 5, 7, "", bgcolor = color.new(color.red, 55), text_size = size.small)
+    table.cell(rt, 0, 8, "grey = coin (|vs RW| < 3pp) · gate needs >5pp at n>=200 out of sample", bgcolor = color.new(color.gray, 55), text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    for c = 1 to 5
+        table.cell(rt, c, 8, "", bgcolor = color.new(color.gray, 55), text_size = size.small)
+
+if showHours and barstate.islast
+    var table ht = table.new(position.bottom_left, 6, 25, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
+    f_paint(ht, 0, "Hour " + tzS, "n", "Win%", "EDGE", "AvgR", "", color.navy, color.white)
+    int rw = 1
+    for h = 0 to 23
+        aH = f_nAll(27 + h)
+        nH = f_nRes(27 + h)
+        if aH > 0 and rw <= 24
+            rH = f_avgR(27 + h)
+            eH = f_edge(27 + h)
+            wH = f_winp(27 + h)
+            bg = nH < minN ? color.new(color.gray, 80) : nz(rH) > 0 ? color.new(color.green, 55) : color.new(color.red, 55)
+            f_paint(ht, rw, str.tostring(h) + ":00", str.tostring(nH) + "/" + str.tostring(aH), na(wH) ? "-" : str.tostring(wH, "#"), na(eH) ? "-" : (eH > 0 ? "+" : "") + str.tostring(eH, "#"), na(rH) ? "-" : str.tostring(rH, "#.##"), "", bg, nH < minN ? color.new(color.silver, 35) : color.white)
+            rw += 1

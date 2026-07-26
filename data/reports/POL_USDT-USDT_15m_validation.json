@@ -1,0 +1,28 @@
+{
+  "symbol": "POL/USDT:USDT",
+  "total_bars": 65398,
+  "duplicates": 0,
+  "gaps": [],
+  "missing_bars": 0,
+  "impossible_ohlc": [],
+  "non_positive_price": [],
+  "dead_runs": [],
+  "extreme_jumps": [
+    {
+      "timestamp": 1755871200000,
+      "log_return": 0.05622739779262687,
+      "zscore": 8.450450165576035
+    },
+    {
+      "timestamp": 1760129100000,
+      "log_return": -0.06102907300108962,
+      "zscore": -8.127848684607027
+    },
+    {
+      "timestamp": 1760130900000,
+      "log_return": -0.3671836217017912,
+      "zscore": -9.739227127284334
+    }
+  ],
+  "outlier_wicks": []
+}

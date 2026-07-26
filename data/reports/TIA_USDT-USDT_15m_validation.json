@@ -1,0 +1,58 @@
+{
+  "symbol": "TIA/USDT:USDT",
+  "total_bars": 95903,
+  "duplicates": 0,
+  "gaps": [],
+  "missing_bars": 0,
+  "impossible_ohlc": [],
+  "non_positive_price": [],
+  "dead_runs": [],
+  "extreme_jumps": [
+    {
+      "timestamp": 1704283200000,
+      "log_return": -0.13971230111333177,
+      "zscore": -8.813163893935846
+    },
+    {
+      "timestamp": 1712942100000,
+      "log_return": -0.06869341144859124,
+      "zscore": -8.684659209958513
+    },
+    {
+      "timestamp": 1712946600000,
+      "log_return": -0.12967196698179642,
+      "zscore": -8.498723184883058
+    },
+    {
+      "timestamp": 1717783200000,
+      "log_return": -0.14983843081102427,
+      "zscore": -9.422983512888832
+    },
+    {
+      "timestamp": 1746688500000,
+      "log_return": 0.07050083992378865,
+      "zscore": 8.576961325732618
+    },
+    {
+      "timestamp": 1760129100000,
+      "log_return": -0.09961560941603381,
+      "zscore": -8.659530614019005
+    },
+    {
+      "timestamp": 1760130900000,
+      "log_return": -0.6442647612126259,
+      "zscore": -9.748530600216563
+    },
+    {
+      "timestamp": 1768780800000,
+      "log_return": -0.06747197911655611,
+      "zscore": -8.1855237575552
+    },
+    {
+      "timestamp": 1774136700000,
+      "log_return": -0.031036444097536784,
+      "zscore": -8.44550446275986
+    }
+  ],
+  "outlier_wicks": []
+}
