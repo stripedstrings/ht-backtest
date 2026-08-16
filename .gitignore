@@ -24,3 +24,5 @@ data/reports/*
 data/memory/*
 !data/memory/hypothesis_log.csv
 !data/memory/README.md
+# Candidate queue artifacts are regenerable
+# (schemas/examples live under specs/candidates_schema/)

@@ -14,6 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+discovery = ["anthropic>=0.40"]
 
 [project.scripts]
 ht-backtest = "ht_backtest.cli:main"

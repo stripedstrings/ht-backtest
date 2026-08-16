@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ht_backtest_intake_v1",
+  "title": "Audit intake v1",
+  "type": "object",
+  "required": ["entry", "stop", "timeframe", "instrument_type"],
+  "properties": {
+    "title": { "type": "string", "description": "Short human label for this idea" },
+    "entry": {
+      "type": "object",
+      "required": ["plain_english"],
+      "properties": {
+        "plain_english": { "type": "string", "minLength": 20 },
+        "indicator_parameters": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Named knobs, e.g. {\"atr_len\": 14, \"reclaim_bars\": 3}"
+        }
+      }
+    },
+    "stop": {
+      "type": "object",
+      "required": ["plain_english"],
+      "properties": {
+        "plain_english": { "type": "string", "minLength": 5 },
+        "parameters": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "filters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["plain_english"],
+        "properties": {
+          "plain_english": { "type": "string" },
+          "parameters": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "default": []
+    },
+    "timeframe": {
+      "type": "string",
+      "enum": ["1m", "5m", "15m", "1h", "4h", "1d"],
+      "description": "Bar timeframe for the candidate"
+    },
+    "instrument_type": {
+      "type": "string",
+      "enum": ["crypto", "FX", "stocks"]
+    },
+    "theoretical_spine": {
+      "type": "string",
+      "description": "Optional: why this might beat a coin"
+    },
+    "source": {
+      "type": "string",
+      "description": "Optional URL or note about origin"
+    }
+  },
+  "additionalProperties": false
+}

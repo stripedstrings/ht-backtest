@@ -1,0 +1,23 @@
+# Example audit intake (no Claude call required for schema validation).
+# Run: ht-backtest intake specs/candidates_schema/examples/intake_first_raid.json
+
+title: "First killzone raid reclaim"
+entry:
+  plain_english: >
+    In London or NY killzone, take only the first raid of the frozen session-range
+    edge, then enter when price closes back inside that edge within a few bars.
+  indicator_parameters:
+    reclaim_bars: 3
+    sessions: ["london", "ny"]
+    one_raid_per_kz: true
+stop:
+  plain_english: "Stop beyond the sweep extreme of the raid bar."
+  parameters:
+    beyond_extreme: true
+filters: []
+timeframe: "15m"
+instrument_type: crypto
+theoretical_spine: >
+  Judas swing — the first raid of a killzone is the real stop-run; reclaim traps
+  chase liquidity.
+source: "manual audit intake example"

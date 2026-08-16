@@ -126,6 +126,30 @@ def cmd_memory(args: argparse.Namespace) -> None:
     print(format_prior_results_summary(args.log))
 
 
+def cmd_intake(args: argparse.Namespace) -> None:
+    from ht_backtest.discovery.pipeline import run_intake_pipeline
+
+    result = run_intake_pipeline(
+        args.intake_file,
+        fixture=args.fixture,
+        skip_dry_count=args.skip_dry_count,
+        max_symbols=args.max_symbols,
+        candidates_root=args.candidates_dir,
+        split_path=args.split_path,
+        cache_dir=args.cache_dir,
+        model=args.model,
+    )
+    print()
+    print(json.dumps({k: v for k, v in result.items() if k != "candidate"}, indent=2))
+    raise SystemExit(0 if result.get("accepted") else 2)
+
+
+def cmd_intake_serve(args: argparse.Namespace) -> None:
+    from ht_backtest.discovery.web_form import serve
+
+    serve(host=args.host, port=args.port, fixture_default=args.fixture)
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     strategy = get_strategy(args.strategy)
     meta = strategy.metadata()
@@ -284,6 +308,30 @@ def main() -> None:
     p_mem.add_argument("--category", default=None, help="filter: timing|volume|range|cross-asset|pattern")
     p_mem.add_argument("--signal-type", default=None, help="optional signal_type inside key_parameters")
     p_mem.set_defaults(func=cmd_memory)
+
+    p_intake = sub.add_parser(
+        "intake",
+        help="Audit intake → YAML candidate (Claude or --fixture) → dry-count → queue/reject",
+    )
+    p_intake.add_argument("intake_file", help="YAML/JSON intake file (see specs/candidates_schema/examples/)")
+    p_intake.add_argument(
+        "--fixture",
+        action="store_true",
+        help="offline deterministic translator (no ANTHROPIC_API_KEY)",
+    )
+    p_intake.add_argument("--skip-dry-count", action="store_true", help="translate+risk only (dev)")
+    p_intake.add_argument("--max-symbols", type=int, default=None, help="limit train symbols for dry-count")
+    p_intake.add_argument("--candidates-dir", default="data/candidates")
+    p_intake.add_argument("--split-path", default="specs/splits/v1.json")
+    p_intake.add_argument("--cache-dir", default="data/raw")
+    p_intake.add_argument("--model", default=None, help="Anthropic model id override")
+    p_intake.set_defaults(func=cmd_intake)
+
+    p_web = sub.add_parser("intake-serve", help="Local web form for audit intake (stdlib HTTP)")
+    p_web.add_argument("--host", default="127.0.0.1")
+    p_web.add_argument("--port", type=int, default=8765)
+    p_web.add_argument("--fixture", action="store_true", help="default form submissions to fixture translator")
+    p_web.set_defaults(func=cmd_intake_serve)
 
     args = parser.parse_args()
     args.func(args)
