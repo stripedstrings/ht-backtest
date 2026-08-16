@@ -39,8 +39,10 @@ def _obj(vals):
 def test_library_size_and_mutex():
     assert len(ALL_CONDITIONS) == 23
     assert is_mutex_combo(["london_session", "ny_session"])
+    assert is_mutex_combo(["london_session", "london_raided_high"])
+    assert is_mutex_combo(["london_session", "london_raided_low"])
     assert not is_mutex_combo(["london_session", "volume_high"])
-    assert len(MUTEX_PAIRS) == 12
+    assert len(MUTEX_PAIRS) == 14
 
 
 def test_session_conditions():

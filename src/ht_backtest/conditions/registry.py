@@ -34,6 +34,9 @@ MUTEX_PAIRS: tuple[tuple[str, str], ...] = (
     ("funding_positive", "funding_negative"),
     ("london_raided_high", "london_raided_low"),
     ("prior_session_same_direction", "prior_session_opposite_direction"),
+    # London outcome undefined while London is open — impossible ANDs
+    ("london_session", "london_raided_high"),
+    ("london_session", "london_raided_low"),
 )
 
 
