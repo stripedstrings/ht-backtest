@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 
 from ht_backtest.data.downloader import OHLCVDownloader
+from ht_backtest.data.funding import attach_funding_rate
 from ht_backtest.data.split import SplitManifest
 from ht_backtest.gates.primitive_cache import load_or_compute_primitives
 from ht_backtest.profiling import StageTimings
@@ -76,9 +77,14 @@ def _process_symbol_timed(
     use_primitive_cache: bool,
     primitives_cache_dir: str,
     cache_dir: str = "data/raw",
+    funding_dir: str = "data/funding",
+    attach_funding: bool = True,
 ) -> tuple[pd.DataFrame, int, StageTimings]:
     timings = StageTimings(symbols=1)
     t_all = time.perf_counter()
+
+    if attach_funding:
+        df = attach_funding_rate(df, symbol, funding_dir=funding_dir)
 
     t0 = time.perf_counter()
     prim = load_or_compute_primitives(
@@ -177,6 +183,8 @@ def _run_one_symbol(payload: dict[str, Any]) -> tuple[str, pd.DataFrame, float, 
         use_primitive_cache=payload.get("use_primitive_cache", True),
         primitives_cache_dir=payload.get("primitives_cache_dir", "data/cache/primitives"),
         cache_dir=payload["cache_dir"],
+        funding_dir=payload.get("funding_dir", "data/funding"),
+        attach_funding=payload.get("attach_funding", True),
     )
     timings.parquet_load_s = load_s
     timings.total_s += load_s
@@ -195,12 +203,17 @@ def generate_pooled_trades(
     split_path: str | Path | None = None,
     use_primitive_cache: bool = True,
     primitives_cache_dir: str = "data/cache/primitives",
+    funding_dir: str = "data/funding",
+    attach_funding: bool = True,
     log_fn=print,
 ) -> tuple[pd.DataFrame, StageTimings]:
     """Generate pooled trades for one strategy across the split universe.
 
     Returns (trades_df, StageTimings). `workers>1` uses a process pool over
     symbols and requires `strategy_name` + `split_path`.
+
+    When ``attach_funding`` is True, each symbol's OHLCV frame gains a causal
+    ``funding_rate`` column (row count unchanged).
     """
     meta = strategy.metadata()
     workers = max(1, int(workers))
@@ -228,6 +241,8 @@ def generate_pooled_trades(
                 use_primitive_cache=use_primitive_cache,
                 primitives_cache_dir=primitives_cache_dir,
                 cache_dir=cache_dir,
+                funding_dir=funding_dir,
+                attach_funding=attach_funding,
             )
             timings.parquet_load_s = load_s
             timings.total_s += load_s
@@ -273,6 +288,8 @@ def generate_pooled_trades(
             "mfe_win": mfe_win,
             "use_primitive_cache": use_primitive_cache,
             "primitives_cache_dir": primitives_cache_dir,
+            "funding_dir": str(Path(funding_dir).resolve()),
+            "attach_funding": attach_funding,
         }
         for symbol in split.universe
     ]

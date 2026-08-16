@@ -92,7 +92,7 @@ Counts are the design target for estimates; exact IDs freeze at implementation r
 | `fund_hi_p90` | Funding ≥ trailing 90th pct over 30d of funding prints |
 | `fund_lo_p10` | Funding ≤ trailing 10th pct over 30d |
 
-**Ingest (new):** Binance USDT-M premiumIndex / fundingRate history per symbol, 8h cadence, stored under e.g. `data/cache/funding/{symbol}.parquet` with columns `fundingTime`, `fundingRate`. Align to 15m bars by as-of merge backward. Symbols without history → all funding conditions `None` until coverage exists; grid may still run non-funding combos.
+**Ingest (new):** Binance USDT-M funding via `ccxt.fetch_funding_rate_history`, stored under `data/funding/{symbol}.parquet` with columns `timestamp`, `funding_rate` (decimal: 0.0001 == 0.01%). Align to 15m bars by `merge_asof` backward at bar open. Symbols without history → NaN → funding conditions `None`.
 
 **Live-parity note:** backtest must use the same as-of rule the eventual EA would see at bar close decision time.
 
