@@ -77,7 +77,12 @@ class HolyTrinityV10Strategy:
         )
 
     def generate_trades(self, bars: pd.DataFrame, ctx: StrategyContext) -> list[TradeCandidate]:
-        trades, _session_range = _ht_generate_trades(bars, params=self.params, **self._pipeline_kwargs())
+        trades, _session_range = _ht_generate_trades(
+            bars,
+            params=self.params,
+            primitives=getattr(ctx, "primitives", None),
+            **self._pipeline_kwargs(),
+        )
         sid = self.metadata().id
         return [TradeCandidate.from_legacy_trade(t, strategy_id=sid, symbol=ctx.symbol) for t in trades]
 

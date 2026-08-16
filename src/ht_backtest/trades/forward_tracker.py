@@ -19,6 +19,9 @@ or mfe_win bars are reached, that trade is marked "insufficient_data" rather
 than a genuine timeout -- but any target already reached within the bars
 that DID exist is still credited (real signal, not discarded), just not the
 targets that remain unknown.
+
+Phase C: trade loop uses NumPy column arrays (no DataFrame.iterrows).
+Per-trade bar scan is unchanged so reach outcomes stay bit-identical.
 """
 
 from __future__ import annotations
@@ -38,19 +41,29 @@ def track_forward_reach(
     if trades_df.empty:
         return trades_df
 
-    high = df["high"].to_numpy()
-    low = df["low"].to_numpy()
-    close = df["close"].to_numpy()
+    high = df["high"].to_numpy(dtype=np.float64, copy=False)
+    low = df["low"].to_numpy(dtype=np.float64, copy=False)
+    close = df["close"].to_numpy(dtype=np.float64, copy=False)
     n_bars = len(df)
 
-    resolutions, mfes, end_rs, ambiguous_flags, ambiguous_bars = [], [], [], [], []
-    reach_cols = {T: [] for T in targets}
+    directions = trades_df["direction"].to_numpy()
+    entry_bars = trades_df["entry_bar"].to_numpy(dtype=np.int64, copy=False)
+    entry_prices = trades_df["entry_price"].to_numpy(dtype=np.float64, copy=False)
+    risks = trades_df["risk"].to_numpy(dtype=np.float64, copy=False)
+    n_trades = len(trades_df)
 
-    for _, row in trades_df.iterrows():
-        direction = row["direction"]
-        entry_bar = int(row["entry_bar"])
-        entry_price = row["entry_price"]
-        risk = row["risk"]
+    resolutions = np.empty(n_trades, dtype=object)
+    mfes = np.empty(n_trades, dtype=np.float64)
+    end_rs = np.empty(n_trades, dtype=np.float64)
+    ambiguous_flags = np.empty(n_trades, dtype=bool)
+    ambiguous_bars = np.empty(n_trades, dtype=object)
+    reach = {T: np.empty(n_trades, dtype=object) for T in targets}
+
+    for t in range(n_trades):
+        direction = directions[t]
+        entry_bar = int(entry_bars[t])
+        entry_price = float(entry_prices[t])
+        risk = float(risks[t])
 
         bars_available = n_bars - 1 - entry_bar
         window = min(mfe_win, bars_available)
@@ -65,9 +78,10 @@ def track_forward_reach(
             resolution = "insufficient_data"
         else:
             stopped = False
+            is_short = direction == "short"
             for k in range(1, window + 1):
                 i = entry_bar + k
-                if direction == "short":
+                if is_short:
                     fav = (entry_price - low[i]) / risk
                     adv = (high[i] - entry_price) / risk
                 else:
@@ -81,28 +95,29 @@ def track_forward_reach(
                     resolution = "stop"
                     stopped = True
                     break
-                running_mfe = max(running_mfe, fav)
+                if fav > running_mfe:
+                    running_mfe = fav
 
             if not stopped:
                 final_i = entry_bar + window
                 close_final = close[final_i]
                 end_r = (
-                    (entry_price - close_final) / risk if direction == "short" else (close_final - entry_price) / risk
+                    (entry_price - close_final) / risk if is_short else (close_final - entry_price) / risk
                 )
                 resolution = "timeout" if window == mfe_win else "insufficient_data"
 
-        resolutions.append(resolution)
-        mfes.append(running_mfe)
-        end_rs.append(end_r)
-        ambiguous_flags.append(ambiguous)
-        ambiguous_bars.append(ambiguous_bar)
+        resolutions[t] = resolution
+        mfes[t] = running_mfe
+        end_rs[t] = end_r
+        ambiguous_flags[t] = ambiguous
+        ambiguous_bars[t] = ambiguous_bar
         for T in targets:
             if running_mfe >= T:
-                reach_cols[T].append(True)
+                reach[T][t] = True
             elif resolution == "insufficient_data":
-                reach_cols[T].append(np.nan)
+                reach[T][t] = np.nan
             else:
-                reach_cols[T].append(False)
+                reach[T][t] = False
 
     out = trades_df.copy()
     out["shadow_resolution"] = resolutions
@@ -111,5 +126,5 @@ def track_forward_reach(
     out["intrabar_ambiguous"] = ambiguous_flags
     out["intrabar_ambiguous_bar"] = ambiguous_bars
     for T in targets:
-        out[f"reach_{T}R"] = reach_cols[T]
+        out[f"reach_{T}R"] = reach[T]
     return out

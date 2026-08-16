@@ -20,6 +20,9 @@ import pandas as pd
 
 from ht_backtest.data.downloader import OHLCVDownloader
 from ht_backtest.data.split import SplitManifest
+from ht_backtest.gates.primitive_cache import load_or_compute_primitives
+from ht_backtest.profiling import StageTimings
+from ht_backtest.reports.reach import reach_vs_random_walk
 from ht_backtest.strategies.base import Strategy, StrategyContext, assemble_symbol_trades
 from ht_backtest.trades.forward_tracker import track_forward_reach
 
@@ -27,35 +30,116 @@ _FAR_PAST_MS = 0
 _FAR_FUTURE_MS = 4_102_444_800_000  # 2100-01-01
 
 
-def _run_one_symbol(payload: dict[str, Any]) -> tuple[str, pd.DataFrame, float, int]:
-    """Picklable worker: strategy by registry name + split loaded from path."""
-    from ht_backtest.strategies.registry import get_strategy
+def _process_symbol_timed(
+    strategy: Strategy,
+    df: pd.DataFrame,
+    symbol: str,
+    timeframe: str,
+    split: SplitManifest,
+    exchange_id: str,
+    mfe_win: int,
+    *,
+    use_primitive_cache: bool,
+    primitives_cache_dir: str,
+) -> tuple[pd.DataFrame, int, StageTimings]:
+    timings = StageTimings(symbols=1)
+    t_all = time.perf_counter()
 
-    t0 = time.time()
-    strategy = get_strategy(payload["strategy_name"])
-    meta = strategy.metadata()
-    split = SplitManifest.load(payload["split_path"])
-    symbol = payload["symbol"]
-    timeframe = payload["timeframe"]
-    dl = OHLCVDownloader(exchange_id=payload["exchange_id"], cache_dir=payload["cache_dir"])
-    df = dl.cached_range(symbol, timeframe, _FAR_PAST_MS, _FAR_FUTURE_MS)
-    if df.empty:
-        return symbol, pd.DataFrame(), time.time() - t0, 0
+    t0 = time.perf_counter()
+    prim = load_or_compute_primitives(
+        df,
+        exchange_id=exchange_id,
+        symbol=symbol,
+        timeframe=timeframe,
+        cache_dir=primitives_cache_dir,
+        use_cache=use_primitive_cache,
+    )
+    timings.primitives_s = time.perf_counter() - t0
+    timings.notes["primitives_cache_hit"] = prim.cache_hit
+
     ctx = StrategyContext(
         symbol=symbol,
         timeframe=timeframe,
         split=split,
-        exchange_id=payload["exchange_id"],
+        exchange_id=exchange_id,
+        primitives=prim,
     )
-    candidates = strategy.generate_trades(df, ctx)
+
+    t0 = time.perf_counter()
+    # HT pipeline records gate_fsm inside generate_trades when timings passed;
+    # baselines fold signal generation into gate_fsm_s for the stage budget.
+    from ht_backtest.trades.pipeline import generate_trades as _ht_pipe
+    from ht_backtest.strategies.holy_trinity_v10 import HolyTrinityV10Strategy
+
+    if isinstance(strategy, HolyTrinityV10Strategy):
+        stage = StageTimings()
+        trades_list, _ = _ht_pipe(
+            df,
+            params=strategy.params,
+            primitives=prim,
+            timings=stage,
+            **strategy._pipeline_kwargs(),
+        )
+        from ht_backtest.strategies.base import TradeCandidate
+
+        candidates = [
+            TradeCandidate.from_legacy_trade(t, strategy_id=strategy.metadata().id, symbol=symbol)
+            for t in trades_list
+        ]
+        timings.gate_fsm_s = stage.gate_fsm_s
+        # primitives already timed above (cache path); don't double-count pipeline prim
+    else:
+        candidates = strategy.generate_trades(df, ctx)
+        timings.gate_fsm_s = time.perf_counter() - t0
+
+    meta = strategy.metadata()
+    t0 = time.perf_counter()
     tagged = assemble_symbol_trades(strategy, candidates, df, symbol, timeframe, split)
     if not tagged.empty:
         tagged = tagged.copy()
         tagged["strategy_id"] = meta.id
         tagged["strategy_version"] = meta.version
         tagged["strategy_parameter_hash"] = meta.parameter_hash
-    tracked = track_forward_reach(tagged, df, mfe_win=payload["mfe_win"])
-    return symbol, tracked, time.time() - t0, len(candidates)
+    timings.assemble_tag_s = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    tracked = track_forward_reach(tagged, df, mfe_win=mfe_win)
+    timings.forward_tracker_s = time.perf_counter() - t0
+    timings.trades = len(candidates)
+    timings.total_s = time.perf_counter() - t_all
+    return tracked, len(candidates), timings
+
+
+def _run_one_symbol(payload: dict[str, Any]) -> tuple[str, pd.DataFrame, float, int, dict]:
+    """Picklable worker: strategy by registry name + split loaded from path."""
+    from ht_backtest.strategies.registry import get_strategy
+
+    t_load0 = time.perf_counter()
+    strategy = get_strategy(payload["strategy_name"])
+    split = SplitManifest.load(payload["split_path"])
+    symbol = payload["symbol"]
+    timeframe = payload["timeframe"]
+    dl = OHLCVDownloader(exchange_id=payload["exchange_id"], cache_dir=payload["cache_dir"])
+    df = dl.cached_range(symbol, timeframe, _FAR_PAST_MS, _FAR_FUTURE_MS)
+    load_s = time.perf_counter() - t_load0
+    if df.empty:
+        empty_t = StageTimings(parquet_load_s=load_s, total_s=load_s)
+        return symbol, pd.DataFrame(), load_s, 0, empty_t.to_dict()
+
+    tracked, n_cand, timings = _process_symbol_timed(
+        strategy,
+        df,
+        symbol,
+        timeframe,
+        split,
+        payload["exchange_id"],
+        payload["mfe_win"],
+        use_primitive_cache=payload.get("use_primitive_cache", True),
+        primitives_cache_dir=payload.get("primitives_cache_dir", "data/cache/primitives"),
+    )
+    timings.parquet_load_s = load_s
+    timings.total_s += load_s
+    return symbol, tracked, timings.total_s, n_cand, timings.to_dict()
 
 
 def generate_pooled_trades(
@@ -68,58 +152,73 @@ def generate_pooled_trades(
     workers: int = 1,
     strategy_name: str | None = None,
     split_path: str | Path | None = None,
+    use_primitive_cache: bool = True,
+    primitives_cache_dir: str = "data/cache/primitives",
     log_fn=print,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, StageTimings]:
     """Generate pooled trades for one strategy across the split universe.
 
-    `workers>1` uses a process pool over symbols. Parallel mode requires
-    `strategy_name` (registry key) and `split_path` so workers can rebuild
-    state after spawn on Windows.
+    Returns (trades_df, StageTimings). `workers>1` uses a process pool over
+    symbols and requires `strategy_name` + `split_path`.
     """
     meta = strategy.metadata()
     workers = max(1, int(workers))
+    agg = StageTimings()
+    t_run = time.perf_counter()
 
     if workers == 1:
         dl = OHLCVDownloader(exchange_id=exchange_id, cache_dir=cache_dir)
         frames: list[pd.DataFrame] = []
         for i, symbol in enumerate(split.universe, 1):
+            t0 = time.perf_counter()
             df = dl.cached_range(symbol, timeframe, _FAR_PAST_MS, _FAR_FUTURE_MS)
+            load_s = time.perf_counter() - t0
             if df.empty:
                 log_fn(f"[{i}/{len(split.universe)}] {symbol}: no cached data, skipping")
                 continue
-            t0 = time.time()
-            ctx = StrategyContext(
-                symbol=symbol,
-                timeframe=timeframe,
-                split=split,
-                exchange_id=exchange_id,
+            tracked, n_cand, timings = _process_symbol_timed(
+                strategy,
+                df,
+                symbol,
+                timeframe,
+                split,
+                exchange_id,
+                mfe_win,
+                use_primitive_cache=use_primitive_cache,
+                primitives_cache_dir=primitives_cache_dir,
             )
-            candidates = strategy.generate_trades(df, ctx)
-            tagged = assemble_symbol_trades(strategy, candidates, df, symbol, timeframe, split)
-            if not tagged.empty:
-                tagged = tagged.copy()
-                tagged["strategy_id"] = meta.id
-                tagged["strategy_version"] = meta.version
-                tagged["strategy_parameter_hash"] = meta.parameter_hash
-            tracked = track_forward_reach(tagged, df, mfe_win=mfe_win)
+            timings.parquet_load_s = load_s
+            timings.total_s += load_s
+            agg = agg.add(timings)
             frames.append(tracked)
             n_train = int((tracked["split"] == "train").sum()) if not tracked.empty else 0
             n_holdout = len(tracked) - n_train
             log_fn(
-                f"[{i}/{len(split.universe)}] {symbol}: {len(candidates)} trades "
-                f"(train={n_train} holdout={n_holdout}) in {time.time()-t0:.1f}s"
+                f"[{i}/{len(split.universe)}] {symbol}: {n_cand} trades "
+                f"(train={n_train} holdout={n_holdout}) in {timings.total_s:.1f}s "
+                f"[load={load_s:.2f} prim={timings.primitives_s:.2f} "
+                f"gate={timings.gate_fsm_s:.2f} track={timings.forward_tracker_s:.2f}"
+                f"{' cache_hit' if timings.notes.get('primitives_cache_hit') else ''}]"
             )
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        t_agg0 = time.perf_counter()
+        if not out.empty:
+            _ = reach_vs_random_walk(out[out["split"] == "train"] if "split" in out.columns else out)
+        agg.reach_aggregation_s = time.perf_counter() - t_agg0
+        agg.total_s = time.perf_counter() - t_run
+        agg.notes["strategy_id"] = meta.id
+        agg.notes["use_primitive_cache"] = use_primitive_cache
+        return out, agg
 
     if not strategy_name:
         raise ValueError("workers>1 requires strategy_name (registry key) for pickling")
     if not split_path:
-        # Persist a temp split path under cache so workers can load it
         split_path = Path(cache_dir).parent / "runs" / "_tmp_splits" / f"{meta.id}_{os.getpid()}.json"
         Path(split_path).parent.mkdir(parents=True, exist_ok=True)
         split.save(split_path)
     split_path = str(Path(split_path).resolve())
     cache_dir = str(Path(cache_dir).resolve())
+    primitives_cache_dir = str(Path(primitives_cache_dir).resolve())
 
     payloads = [
         {
@@ -130,6 +229,8 @@ def generate_pooled_trades(
             "exchange_id": exchange_id,
             "cache_dir": cache_dir,
             "mfe_win": mfe_win,
+            "use_primitive_cache": use_primitive_cache,
+            "primitives_cache_dir": primitives_cache_dir,
         }
         for symbol in split.universe
     ]
@@ -142,10 +243,15 @@ def generate_pooled_trades(
             symbol = futures[fut]
             done += 1
             try:
-                sym, tracked, elapsed, n_cand = fut.result()
-            except Exception as exc:  # noqa: BLE001 — surface per-symbol failure, continue batch
+                sym, tracked, elapsed, n_cand, timing_dict = fut.result()
+            except Exception as exc:  # noqa: BLE001
                 log_fn(f"[{done}/{len(payloads)}] {symbol}: ERROR {exc}")
                 continue
+            st = StageTimings(**{k: timing_dict[k] for k in timing_dict if k in StageTimings.__dataclass_fields__})
+            # notes may be nested
+            if "notes" in timing_dict:
+                st.notes = timing_dict["notes"]
+            agg = agg.add(st)
             if tracked.empty and n_cand == 0:
                 log_fn(f"[{done}/{len(payloads)}] {sym}: no cached data or no trades in {elapsed:.1f}s")
             else:
@@ -153,8 +259,21 @@ def generate_pooled_trades(
                 n_holdout = len(tracked) - n_train
                 log_fn(
                     f"[{done}/{len(payloads)}] {sym}: {n_cand} trades "
-                    f"(train={n_train} holdout={n_holdout}) in {elapsed:.1f}s"
+                    f"(train={n_train} holdout={n_holdout}) in {elapsed:.1f}s "
+                    f"[load={st.parquet_load_s:.2f} prim={st.primitives_s:.2f} "
+                    f"gate={st.gate_fsm_s:.2f} track={st.forward_tracker_s:.2f}"
+                    f"{' cache_hit' if st.notes.get('primitives_cache_hit') else ''}]"
                 )
             if not tracked.empty:
                 frames.append(tracked)
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    t_agg0 = time.perf_counter()
+    if not out.empty:
+        _ = reach_vs_random_walk(out[out["split"] == "train"] if "split" in out.columns else out)
+    agg.reach_aggregation_s += time.perf_counter() - t_agg0
+    agg.total_s = time.perf_counter() - t_run
+    agg.notes["strategy_id"] = meta.id
+    agg.notes["use_primitive_cache"] = use_primitive_cache
+    agg.notes["workers"] = workers
+    return out, agg

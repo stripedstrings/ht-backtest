@@ -35,6 +35,18 @@ def _atr_stop(entry: float, atr: float, direction: str, mult: float) -> tuple[fl
     return entry + risk, risk
 
 
+def _atr_array(bars: pd.DataFrame, ctx: StrategyContext) -> np.ndarray:
+    if ctx.primitives is not None:
+        return ctx.primitives.atr.to_numpy()
+    return compute_atr(bars, 14).to_numpy()
+
+
+def _sessions_frame(bars: pd.DataFrame, ctx: StrategyContext) -> pd.DataFrame:
+    if ctx.primitives is not None:
+        return ctx.primitives.sessions
+    return session_tags(bars["timestamp"])
+
+
 def _session_open_trades(
     bars: pd.DataFrame,
     ctx: StrategyContext,
@@ -44,8 +56,8 @@ def _session_open_trades(
     atr_mult: float,
     cooldown_bars: int,
 ) -> list[TradeCandidate]:
-    atr = compute_atr(bars, 14).to_numpy()
-    sessions = session_tags(bars["timestamp"])
+    atr = _atr_array(bars, ctx)
+    sessions = _sessions_frame(bars, ctx)
     start_col = "london_start" if session == "london" else "ny_start"
     starts = sessions[start_col].to_numpy()
     close = bars["close"].to_numpy()
@@ -154,7 +166,7 @@ class DonchianBreakoutStrategy:
         )
 
     def generate_trades(self, bars: pd.DataFrame, ctx: StrategyContext) -> list[TradeCandidate]:
-        atr = compute_atr(bars, 14).to_numpy()
+        atr = _atr_array(bars, ctx)
         high = bars["high"].to_numpy()
         low = bars["low"].to_numpy()
         close = bars["close"].to_numpy()
@@ -227,7 +239,7 @@ class SMAMomentumStrategy:
         )
 
     def generate_trades(self, bars: pd.DataFrame, ctx: StrategyContext) -> list[TradeCandidate]:
-        atr = compute_atr(bars, 14)
+        atr = pd.Series(_atr_array(bars, ctx))
         sma = bars["close"].rolling(self.sma_len).mean()
         close = bars["close"]
         prev_close = close.shift(1)
@@ -304,7 +316,7 @@ class MeanReversionExtremaStrategy:
         )
 
     def generate_trades(self, bars: pd.DataFrame, ctx: StrategyContext) -> list[TradeCandidate]:
-        atr = compute_atr(bars, 14).to_numpy()
+        atr = _atr_array(bars, ctx)
         high = bars["high"].to_numpy()
         low = bars["low"].to_numpy()
         close = bars["close"].to_numpy()

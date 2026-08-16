@@ -59,6 +59,8 @@ def main() -> int:
         cache_dir=str(ROOT / "data" / "raw"),
         mfe_win=100,
     )
+    if isinstance(trades, tuple):
+        trades, _timings = trades
     if trades.empty:
         print("FAIL: pooled trades empty — OHLCV cache missing?", file=sys.stderr)
         return 2

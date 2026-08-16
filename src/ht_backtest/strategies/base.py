@@ -54,6 +54,7 @@ class StrategyContext:
     timeframe: str
     split: SplitManifest | None = None
     exchange_id: str = "binanceusdm"
+    primitives: Any = None  # optional SymbolPrimitives; avoid circular import
 
 
 @dataclass

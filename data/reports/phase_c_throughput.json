@@ -1,0 +1,78 @@
+{
+  "phase_a_baseline_s": 200.0,
+  "phase_b_batch_baseline_s": 210.0,
+  "steps": [
+    {
+      "label": "STEP1 profile cold (no prim cache, workers=1)",
+      "wall_s": 119.6935357999755,
+      "timings": {
+        "parquet_load_s": 44.520701200468466,
+        "primitives_s": 21.153315000236034,
+        "gate_fsm_s": 50.11809540016111,
+        "forward_tracker_s": 0.3721734001301229,
+        "reach_aggregation_s": 0.0305919999955222,
+        "assemble_tag_s": 2.8063708001282066,
+        "total_s": 119.68738080002367,
+        "symbols": 30,
+        "trades": 8767,
+        "notes": {
+          "primitives_cache_hit": false,
+          "strategy_id": "holy_trinity_v10",
+          "use_primitive_cache": false
+        }
+      },
+      "golden": "ok",
+      "train_n": 4483
+    },
+    {
+      "label": "STEP2b with primitive cache (workers=1)",
+      "wall_s": 133.16609830001835,
+      "timings": {
+        "parquet_load_s": 54.82061990024522,
+        "primitives_s": 3.373627100372687,
+        "gate_fsm_s": 69.87125779967755,
+        "forward_tracker_s": 0.5117958999471739,
+        "reach_aggregation_s": 0.007583500002510846,
+        "assemble_tag_s": 3.741020999965258,
+        "total_s": 133.1637897999026,
+        "symbols": 30,
+        "trades": 8767,
+        "notes": {
+          "primitives_cache_hit": true,
+          "strategy_id": "holy_trinity_v10",
+          "use_primitive_cache": true
+        }
+      },
+      "golden": "ok",
+      "train_n": 4483
+    },
+    {
+      "label": "STEP3 cache + workers=4 (vectorized tracker)",
+      "wall_s": 29.122861600015312,
+      "timings": {
+        "parquet_load_s": 39.21499110024888,
+        "primitives_s": 2.8235603999346495,
+        "gate_fsm_s": 55.097704199841246,
+        "forward_tracker_s": 0.3525095002260059,
+        "reach_aggregation_s": 0.008650799980387092,
+        "assemble_tag_s": 2.697635799762793,
+        "total_s": 29.121230899938382,
+        "symbols": 30,
+        "trades": 8767,
+        "notes": {
+          "primitives_cache_hit": true,
+          "strategy_id": "holy_trinity_v10",
+          "use_primitive_cache": true,
+          "workers": 4
+        }
+      },
+      "golden": "ok",
+      "train_n": 4483
+    }
+  ],
+  "batch_10_wall_s": 238.04701100010425,
+  "batch_dir": "C:\\Users\\juhan\\ht_backtest\\data\\runs\\batch_v1_20260816T122008Z",
+  "new_hypothesis_wall_s": 22.197281899978407,
+  "target_new_hypothesis_s": 60.0,
+  "hit_60s_target": true
+}

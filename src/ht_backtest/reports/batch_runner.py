@@ -36,6 +36,7 @@ class BatchConfig:
     workers: int = 1
     min_edge_pp: float = 5.0
     min_n: int = 200
+    use_primitive_cache: bool = True
 
 
 def load_batch_config(path: str | Path) -> BatchConfig:
@@ -60,6 +61,7 @@ def load_batch_config(path: str | Path) -> BatchConfig:
         workers=int(raw.get("workers", 1)),
         min_edge_pp=float(raw.get("min_edge_pp", 5.0)),
         min_n=int(raw.get("min_n", 200)),
+        use_primitive_cache=bool(raw.get("use_primitive_cache", True)),
     )
 
 
@@ -85,7 +87,7 @@ def run_batch(config: BatchConfig, log_fn=print) -> Path:
         log_fn(f"=== {meta.id} v{meta.version} hash={meta.parameter_hash} ===")
         log_fn(meta.description)
         t0 = time.time()
-        trades = generate_pooled_trades(
+        trades, timings = generate_pooled_trades(
             strategy=strategy,
             split=split,
             timeframe=config.timeframe,
@@ -95,6 +97,7 @@ def run_batch(config: BatchConfig, log_fn=print) -> Path:
             workers=config.workers,
             strategy_name=name,
             split_path=split_path,
+            use_primitive_cache=getattr(config, "use_primitive_cache", True),
             log_fn=log_fn,
         )
         elapsed = time.time() - t0
@@ -112,6 +115,7 @@ def run_batch(config: BatchConfig, log_fn=print) -> Path:
                     "timeframe": config.timeframe,
                     "workers": config.workers,
                     "wall_seconds": elapsed,
+                    "stage_timings": timings.to_dict(),
                 },
                 f,
                 indent=2,

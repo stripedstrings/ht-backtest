@@ -19,3 +19,4 @@ data/*
 data/reports/*
 !data/reports/training_reach_table.csv
 !data/reports/training_tag_hypotheses.csv
+!data/reports/phase_c_throughput.json

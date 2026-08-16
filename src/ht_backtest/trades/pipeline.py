@@ -3,20 +3,13 @@ together for a single symbol's OHLCV frame."""
 
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 
-from ht_backtest.gates.primitives import (
-    asia_range_pools,
-    compute_atr,
-    daily_bias_pivots,
-    daily_prev_high_low,
-    efficiency_ratio,
-    pool_swing_events,
-    protected_swing_levels,
-    session_tags,
-    utc_day_tags,
-)
+from ht_backtest.gates.primitive_cache import SymbolPrimitives, compute_symbol_primitives
 from ht_backtest.gates.session_range import run_session_range_engine
+from ht_backtest.profiling import StageTimings
 from ht_backtest.trades.state_machine import GateParams, run_trade_state_machine
 
 
@@ -30,31 +23,48 @@ def generate_trades(
     one_raid: bool = True,
     ctx_bars: int = 40,
     d_piv: int = 2,
+    primitives: SymbolPrimitives | None = None,
+    timings: StageTimings | None = None,
 ) -> tuple[list[dict], pd.DataFrame]:
     """df must have columns timestamp, open, high, low, close (sorted
-    ascending). Returns (trades, session_range_frame) -- the session-range
-    frame is returned too since deliverable 5's tagging needs it."""
-    df = df.sort_values("timestamp").reset_index(drop=True)
-    atr = compute_atr(df, length=14)
-    sessions = session_tags(df["timestamp"])
-    day_tags = utc_day_tags(df["timestamp"])
-    pdh, pdl = daily_prev_high_low(df)
-    pool_events = pool_swing_events(df, atr, sw_len=sw_len, eq_tol_mult=eq_tol_mult)
-    asia_pools = asia_range_pools(df, sessions)
-    last_int_hi, last_int_lo = protected_swing_levels(df, int_len=int_len)
-    er = efficiency_ratio(df, ctx_bars=ctx_bars)
-    daily_bias = daily_bias_pivots(df, d_piv=d_piv)
+    ascending). Returns (trades, session_range_frame).
 
+    If `primitives` is provided, ATR/sessions/swings/etc. are reused instead
+    of recomputed — gate/FSM logic is unchanged.
+    """
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    t_prim = time.perf_counter()
+    if primitives is None:
+        primitives = compute_symbol_primitives(
+            df,
+            sw_len=sw_len,
+            int_len=int_len,
+            eq_tol_mult=eq_tol_mult,
+            ctx_bars=ctx_bars,
+            d_piv=d_piv,
+        )
+    prim_s = time.perf_counter() - t_prim
+
+    t_gate = time.perf_counter()
     session_range = run_session_range_engine(
-        df, atr, sessions, day_tags, pdh, pdl, pool_events, asia_pools,
-        max_liq=max_liq, one_raid=one_raid, sw_len=sw_len,
+        df,
+        primitives.atr,
+        primitives.sessions,
+        primitives.day_tags,
+        primitives.pdh,
+        primitives.pdl,
+        primitives.pool_events,
+        primitives.asia_pools,
+        max_liq=max_liq,
+        one_raid=one_raid,
+        sw_len=sw_len,
     )
 
     trades = run_trade_state_machine(
         df,
-        atr=atr,
-        last_int_hi=last_int_hi,
-        last_int_lo=last_int_lo,
+        atr=primitives.atr,
+        last_int_hi=primitives.last_int_hi,
+        last_int_lo=primitives.last_int_lo,
         grab_up=session_range["grab_up"],
         grab_dn=session_range["grab_dn"],
         grab_up_price=session_range["grab_up_price"],
@@ -66,10 +76,17 @@ def generate_trades(
         kz_hi=session_range["kz_hi"],
         kz_lo=session_range["kz_lo"],
         range_width_atr=session_range["range_width_atr"],
-        efficiency_ratio=er,
+        efficiency_ratio=primitives.efficiency_ratio,
         grab_seq=session_range["grab_seq"],
-        sessions=sessions,
-        daily_bias=daily_bias,
+        sessions=primitives.sessions,
+        daily_bias=primitives.daily_bias,
         params=params,
     )
+    gate_s = time.perf_counter() - t_gate
+
+    if timings is not None:
+        timings.primitives_s += prim_s
+        timings.gate_fsm_s += gate_s
+        timings.notes["primitives_cache_hit"] = bool(primitives.cache_hit)
+
     return trades, session_range

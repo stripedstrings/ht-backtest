@@ -141,7 +141,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"out      : {out_dir}")
     print()
 
-    trades = generate_pooled_trades(
+    trades, timings = generate_pooled_trades(
         strategy=strategy,
         split=split,
         timeframe=args.timeframe,
@@ -151,6 +151,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         workers=args.workers,
         strategy_name=args.strategy,
         split_path=split_path,
+        use_primitive_cache=not args.no_primitive_cache,
     )
     trades_path = out_dir / "trades.parquet"
     trades.to_parquet(trades_path, index=False)
@@ -164,6 +165,24 @@ def cmd_run(args: argparse.Namespace) -> None:
     print()
     print(format_reach_table(reach, f"TRAIN reach vs RW — {meta.id}"))
     print(f"\nHoldout rows present in artifact but not scored here: {(trades['split'] == 'holdout').sum() if not trades.empty else 0}")
+    print("\nstage timings:")
+    for k, v in timings.to_dict().items():
+        if k.endswith("_s") or k in ("symbols", "trades"):
+            print(f"  {k}: {v}")
+
+    artifact_meta = {
+        "strategy": meta.to_dict(),
+        "split": args.split,
+        "split_path": str(split_path),
+        "timeframe": args.timeframe,
+        "exchange": args.exchange,
+        "cache_dir": args.cache_dir,
+        "mfe_win": args.mfe_win,
+        "created_at_utc": stamp,
+        "stage_timings": timings.to_dict(),
+    }
+    with open(out_dir / "metadata.json", "w", encoding="utf-8") as f:
+        json.dump(artifact_meta, f, indent=2)
 
 
 def main() -> None:
@@ -226,6 +245,11 @@ def main() -> None:
     p_run.add_argument("--out-dir", default="data/runs")
     p_run.add_argument("--mfe-win", type=int, default=100)
     p_run.add_argument("--workers", type=int, default=1, help="process-pool size over symbols")
+    p_run.add_argument(
+        "--no-primitive-cache",
+        action="store_true",
+        help="recompute ATR/sessions/swings every time (for profiling cold path)",
+    )
     p_run.set_defaults(func=cmd_run)
 
     p_batch = sub.add_parser(
