@@ -219,6 +219,7 @@ def cmd_funding_validate(args: argparse.Namespace) -> None:
     from ht_backtest.data.downloader import OHLCVDownloader
     from ht_backtest.data.funding import (
         ANOMALY_ABS,
+        FundingDownloader,
         attach_funding_rate,
         flag_funding_anomalies,
         funding_at_bar_open,
@@ -238,9 +239,9 @@ def cmd_funding_validate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     checkpoints = [
-        "2024-03-01T00:00:00+00:00",  # settlement
-        "2024-03-01T09:00:00+00:00",  # must equal 08:00 settlement, not 16:00
-        "2024-03-01T16:00:00+00:00",  # settlement
+        "2024-03-01T00:00:00+00:00",
+        "2024-03-01T09:00:00+00:00",
+        "2024-03-01T16:00:00+00:00",
     ]
     print(f"BTC funding merge validation ({symbol})")
     print(f"bars={len(merged)} (unchanged from {n0})")
@@ -261,10 +262,6 @@ def cmd_funding_validate(args: argparse.Namespace) -> None:
         print(f"{iso:<28} {rate:14.8f} {pct:11.4f}%  {note}")
     print("-" * 72)
     print("Cross-check: https://www.binance.com/en/futures/funding-history/1")
-    print("Typical band ≈ −0.01% to +0.03%; flag if outside −0.1%…+0.1%.")
-
-    # Anomalies on raw funding file
-    from ht_backtest.data.funding import FundingDownloader
 
     raw = FundingDownloader(funding_dir=args.funding_dir).load_cached(symbol)
     rep = flag_funding_anomalies(raw, symbol)
@@ -272,20 +269,74 @@ def cmd_funding_validate(args: argparse.Namespace) -> None:
     if rep.n_anomalies:
         print("Sample flagged rows (may be real extremes, not necessarily corrupt):")
         print(rep.anomalies.head(10).to_string(index=False))
-        # Hard fail only on absurd magnitudes (|rate| > 10% == 0.1 decimal)
         absurd = raw.loc[raw["funding_rate"].abs() > 0.1]
         if len(absurd):
             print("DATA ERROR: |funding_rate| > 10% (0.1 decimal) — unit bug likely")
             print(absurd.head(20).to_string(index=False))
             raise SystemExit(1)
 
-    # Smoke-eval conditions on a slice
     sample = merged.dropna(subset=["funding_rate"]).head(500)
     for cond in FUNDING_CONDITIONS:
         s = cond.eval(sample)
         n_true = int(sum(v is True for v in s))
         n_none = int(sum(v is None for v in s))
         print(f"condition {cond.id}: true={n_true} none={n_none} on sample={len(sample)}")
+
+
+def cmd_htf_download(args: argparse.Namespace) -> None:
+    from ht_backtest.data.htf_4h import download_universe_4h
+    from ht_backtest.data.split import SplitManifest
+
+    split = SplitManifest.load(args.split_path)
+    since_ms = _parse_date(args.since)
+    until_ms = _parse_date(args.until) if args.until else None
+    download_universe_4h(
+        list(split.universe),
+        since_ms=since_ms,
+        until_ms=until_ms,
+        cache_dir=args.cache_dir,
+        exchange_id=args.exchange,
+    )
+
+
+def cmd_htf_validate(args: argparse.Namespace) -> None:
+    """Validate causal 4h EMA at 09:00 UTC on BTC vs manual closed-bar EMA."""
+    from ht_backtest.data.downloader import OHLCVDownloader
+    from ht_backtest.data.htf_4h import attach_4h_features, closed_4h_feature_table, ema, load_4h
+
+    symbol = args.symbol
+    dl = OHLCVDownloader(exchange_id=args.exchange, cache_dir=args.cache_dir)
+    bars = dl.cached_range(symbol, "15m", 0, 4_102_444_800_000)
+    h4 = load_4h(symbol, cache_dir=args.cache_dir, exchange_id=args.exchange)
+    if bars.empty or h4.empty:
+        print("Missing 15m or 4h cache", file=sys.stderr)
+        raise SystemExit(2)
+    n0 = len(bars)
+    merged = attach_4h_features(bars, h4)
+    if len(merged) != n0:
+        print(f"4h merge row drift {n0}→{len(merged)}", file=sys.stderr)
+        raise SystemExit(1)
+
+    # Prefer a concrete date with history; default 2024-03-01 09:00 UTC
+    open_iso = args.at
+    ts_ms = int(pd.Timestamp(open_iso).timestamp() * 1000)
+    hit = merged.loc[merged["timestamp"] == ts_ms]
+    if hit.empty:
+        print(f"No 15m bar at {open_iso}", file=sys.stderr)
+        raise SystemExit(2)
+    got = float(hit.iloc[0]["htf_4h_ema20"])
+    feats = closed_4h_feature_table(h4)
+    closed = feats[feats["close_time_ms"] <= ts_ms]
+    manual = float(ema(closed["close"]).iloc[-1])
+    print(f"BTC 4h EMA validation at {open_iso}")
+    print(f"  merged htf_4h_ema20 = {got:.8f}")
+    print(f"  manual closed-bar EMA20 = {manual:.8f}")
+    print(f"  last closed 4h open = {pd.Timestamp(int(closed.iloc[-1]['open_time_ms']), unit='ms', tz='UTC')}")
+    print(f"  last closed 4h close_time = {pd.Timestamp(int(closed.iloc[-1]['close_time_ms']), unit='ms', tz='UTC')}")
+    if abs(got - manual) > 1e-8 * max(1.0, abs(manual)):
+        print("FAIL: EMA mismatch (lookahead or calc bug)")
+        raise SystemExit(1)
+    print("PASS: 4h EMA matches prior closed bars only")
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -521,6 +572,21 @@ def main() -> None:
     p_fval.add_argument("--cache-dir", default="data/raw")
     p_fval.add_argument("--funding-dir", default="data/funding")
     p_fval.set_defaults(func=cmd_funding_validate)
+
+    p_h4 = sub.add_parser("htf-download", help="Download 4h OHLCV for split universe")
+    p_h4.add_argument("--split-path", default="specs/splits/v1.json")
+    p_h4.add_argument("--since", default="2019-09-08")
+    p_h4.add_argument("--until", default=None)
+    p_h4.add_argument("--exchange", default="binanceusdm")
+    p_h4.add_argument("--cache-dir", default="data/raw")
+    p_h4.set_defaults(func=cmd_htf_download)
+
+    p_h4v = sub.add_parser("htf-validate", help="Validate causal 4h EMA at a 15m bar open (BTC)")
+    p_h4v.add_argument("--symbol", default="BTC/USDT:USDT")
+    p_h4v.add_argument("--at", default="2024-03-01T09:00:00+00:00")
+    p_h4v.add_argument("--exchange", default="binanceusdm")
+    p_h4v.add_argument("--cache-dir", default="data/raw")
+    p_h4v.set_defaults(func=cmd_htf_validate)
 
     args = parser.parse_args()
     args.func(args)
