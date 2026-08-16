@@ -5,8 +5,10 @@ from ht_backtest.strategies.base import (
     StrategyContext,
     StrategyMetadata,
     TradeCandidate,
+    align_aux_bars_to_primary,
     assemble_symbol_trades,
     default_assemble_symbol_frame,
+    strategy_requires_symbols,
 )
 from ht_backtest.strategies.holy_trinity_v10 import HolyTrinityV10Strategy
 from ht_backtest.strategies.registry import get_strategy, list_strategies, register_strategy
@@ -18,9 +20,11 @@ __all__ = [
     "StrategyContext",
     "StrategyMetadata",
     "TradeCandidate",
+    "align_aux_bars_to_primary",
     "assemble_symbol_trades",
     "default_assemble_symbol_frame",
     "get_strategy",
     "list_strategies",
     "register_strategy",
+    "strategy_requires_symbols",
 ]

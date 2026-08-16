@@ -55,6 +55,46 @@ class StrategyContext:
     split: SplitManifest | None = None
     exchange_id: str = "binanceusdm"
     primitives: Any = None  # optional SymbolPrimitives; avoid circular import
+    # Optional cross-asset frames, keyed by symbol id (e.g. "BTC/USDT:USDT").
+    # Only populated when the strategy declares requires_symbols; HT never sets this.
+    # Frames are timestamp-aligned to the primary `bars` index (inner join on timestamp);
+    # missing aux bars become gaps (NaN rows dropped from aux only — primary bars unchanged).
+    aux_bars: dict[str, pd.DataFrame] | None = None
+
+
+def strategy_requires_symbols(strategy: Any) -> tuple[str, ...]:
+    """Optional Strategy extension: tuple of auxiliary symbol ids to load.
+
+    Strategies that need cross-asset data set `requires_symbols = ("BTC/USDT:USDT", ...)`.
+    Default / HT: empty tuple — pooler does not load aux frames.
+    """
+    raw = getattr(strategy, "requires_symbols", ()) or ()
+    return tuple(str(s) for s in raw)
+
+
+def align_aux_bars_to_primary(
+    primary: pd.DataFrame,
+    aux_raw: dict[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    """Align each aux OHLCV frame to primary timestamps (left join on timestamp).
+
+    Primary bar index is preserved. Aux columns are reindexed to primary timestamps;
+    missing timestamps are NaN (no forward-fill — avoids look-ahead / fabrication).
+    """
+    if primary.empty or not aux_raw:
+        return {}
+    primary_ts = primary["timestamp"]
+    out: dict[str, pd.DataFrame] = {}
+    for sym, adf in aux_raw.items():
+        if adf is None or adf.empty:
+            out[sym] = pd.DataFrame(index=primary.index)
+            continue
+        cols = [c for c in ("timestamp", "open", "high", "low", "close", "volume") if c in adf.columns]
+        right = adf[cols].drop_duplicates(subset=["timestamp"], keep="last").sort_values("timestamp")
+        merged = primary[["timestamp"]].merge(right, on="timestamp", how="left", validate="one_to_one")
+        merged.index = primary.index
+        out[sym] = merged
+    return out
 
 
 @dataclass
@@ -144,9 +184,12 @@ class TradeCandidate:
 class Strategy(Protocol):
     """Plug-in surface for any signal logic.
 
-    Optional extension (not required by the Protocol, used by the runner when
-    present): `assemble_symbol_frame(candidates, symbol, timeframe, split)`
-    for strategies that need cross-trade tagging (e.g. HT median tags).
+    Optional extensions (not required by the Protocol; discovered via getattr):
+      - `assemble_symbol_frame(candidates, symbol, timeframe, split)` for
+        cross-trade tagging (e.g. HT median tags).
+      - `requires_symbols: tuple[str, ...]` — auxiliary symbols the pooler
+        must load into `ctx.aux_bars` (timestamp-aligned to primary bars).
+        HT does not set this; its path never loads aux frames.
     """
 
     def metadata(self) -> StrategyMetadata:

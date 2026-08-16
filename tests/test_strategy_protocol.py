@@ -6,7 +6,13 @@ import numpy as np
 import pandas as pd
 
 from ht_backtest.data.split import SplitManifest
-from ht_backtest.strategies.base import StrategyContext, TradeCandidate, assemble_symbol_trades
+from ht_backtest.strategies.base import (
+    StrategyContext,
+    TradeCandidate,
+    align_aux_bars_to_primary,
+    assemble_symbol_trades,
+    strategy_requires_symbols,
+)
 from ht_backtest.strategies.holy_trinity_v10 import HolyTrinityV10Strategy
 from ht_backtest.strategies.registry import get_strategy, list_strategies
 from ht_backtest.trades.pipeline import generate_trades as pipeline_generate_trades
@@ -110,3 +116,39 @@ def test_ht_assemble_preserves_median_tag_columns():
         return
     for col in ("big_wick", "big_displacement", "wide_range", "split", "session_range_high"):
         assert col in frame.columns
+
+
+def test_ht_requires_no_aux_symbols():
+    assert strategy_requires_symbols(HolyTrinityV10Strategy()) == ()
+    assert StrategyContext(symbol="X", timeframe="15m").aux_bars is None
+
+
+def test_align_aux_bars_left_join_preserves_primary_index():
+    primary = pd.DataFrame(
+        {
+            "timestamp": [1000, 2000, 3000, 4000],
+            "open": [1.0, 2.0, 3.0, 4.0],
+            "high": [1.1, 2.1, 3.1, 4.1],
+            "low": [0.9, 1.9, 2.9, 3.9],
+            "close": [1.05, 2.05, 3.05, 4.05],
+            "volume": [10, 20, 30, 40],
+        }
+    )
+    aux = pd.DataFrame(
+        {
+            "timestamp": [2000, 4000, 5000],
+            "open": [10.0, 40.0, 50.0],
+            "high": [11.0, 41.0, 51.0],
+            "low": [9.0, 39.0, 49.0],
+            "close": [10.5, 40.5, 50.5],
+            "volume": [1, 4, 5],
+        }
+    )
+    aligned = align_aux_bars_to_primary(primary, {"BTC/USDT:USDT": aux})
+    btc = aligned["BTC/USDT:USDT"]
+    assert list(btc.index) == list(primary.index)
+    assert list(btc["timestamp"]) == [1000, 2000, 3000, 4000]
+    assert pd.isna(btc.loc[0, "close"])
+    assert btc.loc[1, "close"] == 10.5
+    assert pd.isna(btc.loc[2, "close"])
+    assert btc.loc[3, "close"] == 40.5

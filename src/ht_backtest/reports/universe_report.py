@@ -23,11 +23,45 @@ from ht_backtest.data.split import SplitManifest
 from ht_backtest.gates.primitive_cache import load_or_compute_primitives
 from ht_backtest.profiling import StageTimings
 from ht_backtest.reports.reach import reach_vs_random_walk
-from ht_backtest.strategies.base import Strategy, StrategyContext, assemble_symbol_trades
+from ht_backtest.strategies.base import (
+    Strategy,
+    StrategyContext,
+    align_aux_bars_to_primary,
+    assemble_symbol_trades,
+    strategy_requires_symbols,
+)
 from ht_backtest.trades.forward_tracker import track_forward_reach
 
 _FAR_PAST_MS = 0
 _FAR_FUTURE_MS = 4_102_444_800_000  # 2100-01-01
+
+
+def _load_aux_bars(
+    strategy: Strategy,
+    primary_symbol: str,
+    primary_df: pd.DataFrame,
+    timeframe: str,
+    exchange_id: str,
+    cache_dir: str,
+) -> dict[str, pd.DataFrame] | None:
+    """Load and timestamp-align auxiliary frames if strategy.requires_symbols is set.
+
+    HT and other single-symbol strategies return None (no aux load).
+    """
+    needed = strategy_requires_symbols(strategy)
+    if not needed:
+        return None
+    dl = OHLCVDownloader(exchange_id=exchange_id, cache_dir=cache_dir)
+    raw: dict[str, pd.DataFrame] = {}
+    for sym in needed:
+        if sym == primary_symbol:
+            continue
+        adf = dl.cached_range(sym, timeframe, _FAR_PAST_MS, _FAR_FUTURE_MS)
+        if not adf.empty:
+            raw[sym] = adf
+    if not raw:
+        return {}
+    return align_aux_bars_to_primary(primary_df, raw)
 
 
 def _process_symbol_timed(
@@ -41,6 +75,7 @@ def _process_symbol_timed(
     *,
     use_primitive_cache: bool,
     primitives_cache_dir: str,
+    cache_dir: str = "data/raw",
 ) -> tuple[pd.DataFrame, int, StageTimings]:
     timings = StageTimings(symbols=1)
     t_all = time.perf_counter()
@@ -57,12 +92,17 @@ def _process_symbol_timed(
     timings.primitives_s = time.perf_counter() - t0
     timings.notes["primitives_cache_hit"] = prim.cache_hit
 
+    aux_bars = _load_aux_bars(strategy, symbol, df, timeframe, exchange_id, cache_dir)
+    if aux_bars is not None:
+        timings.notes["aux_symbols"] = list(aux_bars.keys())
+
     ctx = StrategyContext(
         symbol=symbol,
         timeframe=timeframe,
         split=split,
         exchange_id=exchange_id,
         primitives=prim,
+        aux_bars=aux_bars,
     )
 
     t0 = time.perf_counter()
@@ -136,6 +176,7 @@ def _run_one_symbol(payload: dict[str, Any]) -> tuple[str, pd.DataFrame, float, 
         payload["mfe_win"],
         use_primitive_cache=payload.get("use_primitive_cache", True),
         primitives_cache_dir=payload.get("primitives_cache_dir", "data/cache/primitives"),
+        cache_dir=payload["cache_dir"],
     )
     timings.parquet_load_s = load_s
     timings.total_s += load_s
@@ -186,6 +227,7 @@ def generate_pooled_trades(
                 mfe_win,
                 use_primitive_cache=use_primitive_cache,
                 primitives_cache_dir=primitives_cache_dir,
+                cache_dir=cache_dir,
             )
             timings.parquet_load_s = load_s
             timings.total_s += load_s
