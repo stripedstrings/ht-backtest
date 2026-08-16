@@ -1,5 +1,21 @@
+# Virtualenv / Python
 .venv/
 __pycache__/
-*.pyc
-data/raw/
+*.py[cod]
+*$py.class
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets
+.env
+.env.*
+
+# Large regenerable artifacts (OHLCV cache, runs, validation dumps).
+# Keep only the golden anchor CSVs under data/reports/.
+data/*
+!data/reports/
+data/reports/*
+!data/reports/training_reach_table.csv
+!data/reports/training_tag_hypotheses.csv
