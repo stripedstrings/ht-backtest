@@ -12,6 +12,7 @@ from ht_backtest.data.downloader import OHLCVDownloader
 from ht_backtest.data.split import SplitManifest, build_split_manifest
 from ht_backtest.data.universe import pull_and_validate_universe
 from ht_backtest.data.validator import validate_ohlcv
+from ht_backtest.reports.batch_runner import load_batch_config, run_batch
 from ht_backtest.reports.reach import format_reach_table, reach_vs_random_walk
 from ht_backtest.reports.universe_report import generate_pooled_trades
 from ht_backtest.strategies.registry import get_strategy, list_strategies
@@ -100,6 +101,14 @@ def cmd_split_build(args: argparse.Namespace) -> None:
     print(f"  date holdout cutoff  : {manifest.to_dict()['date_holdout_start']}  (most recent {args.date_holdout_fraction:.0%} of span)")
 
 
+def cmd_batch(args: argparse.Namespace) -> None:
+    config = load_batch_config(args.config)
+    print(f"batch config: {args.config}")
+    print(f"strategies ({len(config.strategies)}): {', '.join(config.strategies)}")
+    print(f"split={config.split}  workers={config.workers}  timeframe={config.timeframe}")
+    run_batch(config)
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     strategy = get_strategy(args.strategy)
     meta = strategy.metadata()
@@ -139,6 +148,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         exchange_id=args.exchange,
         cache_dir=args.cache_dir,
         mfe_win=args.mfe_win,
+        workers=args.workers,
+        strategy_name=args.strategy,
+        split_path=split_path,
     )
     trades_path = out_dir / "trades.parquet"
     trades.to_parquet(trades_path, index=False)
@@ -213,7 +225,15 @@ def main() -> None:
     p_run.add_argument("--splits-dir", default="specs/splits")
     p_run.add_argument("--out-dir", default="data/runs")
     p_run.add_argument("--mfe-win", type=int, default=100)
+    p_run.add_argument("--workers", type=int, default=1, help="process-pool size over symbols")
     p_run.set_defaults(func=cmd_run)
+
+    p_batch = sub.add_parser(
+        "batch",
+        help="Run multiple registered strategies from a YAML queue; write train comparison vs RW",
+    )
+    p_batch.add_argument("config", help="path to batch YAML, e.g. specs/batch/example_10.yaml")
+    p_batch.set_defaults(func=cmd_batch)
 
     args = parser.parse_args()
     args.func(args)

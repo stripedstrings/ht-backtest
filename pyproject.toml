@@ -9,6 +9,7 @@ dependencies = [
     "pyarrow>=16",
     "numpy>=1.26",
     "tzdata",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]

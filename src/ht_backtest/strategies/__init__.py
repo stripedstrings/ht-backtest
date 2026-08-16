@@ -11,6 +11,7 @@ from ht_backtest.strategies.base import (
 from ht_backtest.strategies.holy_trinity_v10 import HolyTrinityV10Strategy
 from ht_backtest.strategies.registry import get_strategy, list_strategies, register_strategy
 
+# Importing registry registers baseline strategies as a side effect.
 __all__ = [
     "HolyTrinityV10Strategy",
     "Strategy",

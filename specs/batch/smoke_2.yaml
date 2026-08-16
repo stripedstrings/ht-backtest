@@ -1,0 +1,7 @@
+# Fast smoke: two strategies, same locked split as production.
+split: v1
+timeframe: 15m
+workers: 4
+strategies:
+  - london_open_long_atr1
+  - donchian_20_long
