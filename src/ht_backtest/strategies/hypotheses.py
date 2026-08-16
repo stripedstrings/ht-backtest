@@ -52,7 +52,7 @@ class KzFirstRaidReclaimStrategy:
         return StrategyMetadata(
             id="kz_first_raid_reclaim",
             version=self.version,
-            parameter_hash=hash_params({"reclaim_win": self.reclaim_win}),
+            parameter_hash=hash_params({"id": "kz_first_raid_reclaim", "reclaim_win": self.reclaim_win}),
             description=(
                 "Why it might beat a coin: ICT’s judas-swing claim — the first raid of a "
                 "killzone is the real stop-run that clears resting liquidity; later raids "
@@ -135,7 +135,7 @@ class HighVolGrabReclaimStrategy:
             id="high_vol_grab_reclaim",
             version=self.version,
             parameter_hash=hash_params(
-                {"reclaim_win": self.reclaim_win, "vol_lookback": self.vol_lookback, "rule": "vol>=median"}
+                {"reclaim_win": self.reclaim_win, "vol_lookback": self.vol_lookback, "rule": "vol>=p50"}
             ),
             description=(
                 "Why it might beat a coin: absorption — a stop-run that prints with "
@@ -143,9 +143,9 @@ class HighVolGrabReclaimStrategy:
                 "the raid, filling aggressive flow and defending the level. That is why "
                 "price can reclaim and reverse: the other side got absorbed, not vacuumed. "
                 "This axis uses real exchange volume, not OHLC geometry alone. "
-                "Mechanics: session-range edge raid whose grab-bar volume ≥ median of the "
-                f"prior {self.vol_lookback} bars; enter on reclaim within {self.reclaim_win} "
-                "bars; stop beyond sweep extreme; target far edge or 2R."
+                "Mechanics: session-range edge raid whose grab-bar volume ≥ 50th percentile "
+                f"(median) of the prior {self.vol_lookback} bars; enter on reclaim within "
+                f"{self.reclaim_win} bars; stop beyond sweep extreme; target far edge or 2R."
             ),
         )
 
@@ -181,15 +181,15 @@ class LowVolGrabReclaimStrategy:
             id="low_vol_grab_reclaim",
             version=self.version,
             parameter_hash=hash_params(
-                {"reclaim_win": self.reclaim_win, "vol_lookback": self.vol_lookback, "rule": "vol<=p40"}
+                {"reclaim_win": self.reclaim_win, "vol_lookback": self.vol_lookback, "rule": "vol<=p50"}
             ),
             description=(
                 "Why it might beat a coin: vacuum / thin-air sweep — a raid on quiet volume "
                 "means little opposition at the level, so the break is fragile and snaps "
                 "back once the wick is done. Rival to high_vol_grab_reclaim: same geometry, "
-                "opposite volume prediction; the data adjudicates absorption vs vacuum. "
-                "Mechanics: session-range edge raid with grab-bar volume ≤ 40th percentile "
-                f"of the prior {self.vol_lookback} bars; enter on reclaim within "
+                "symmetric volume split at the median — the data adjudicates absorption vs vacuum. "
+                "Mechanics: session-range edge raid with grab-bar volume ≤ 50th percentile "
+                f"(median) of the prior {self.vol_lookback} bars; enter on reclaim within "
                 f"{self.reclaim_win} bars; stop beyond sweep extreme; target far edge or 2R."
             ),
         )
@@ -200,9 +200,9 @@ class LowVolGrabReclaimStrategy:
         sid = self.metadata().id
         out: list[TradeCandidate] = []
         for e in collect_raid_events(bars, prim, sr):
-            if e.reclaim_bar is None or np.isnan(e.vol_p40):
+            if e.reclaim_bar is None or np.isnan(e.vol_median):
                 continue
-            if e.grab_volume > e.vol_p40:
+            if e.grab_volume > e.vol_median:
                 continue
             t = make_reclaim_trade(bars, ctx, sid, e)
             if t is not None:
@@ -370,7 +370,7 @@ class LondonNySameDirectionStrategy:
         return StrategyMetadata(
             id="london_ny_same_direction",
             version=self.version,
-            parameter_hash=hash_params({"reclaim_win": self.reclaim_win}),
+            parameter_hash=hash_params({"id": "london_ny_same_direction", "reclaim_win": self.reclaim_win}),
             description=(
                 "Why it might beat a coin: two-session institutional commitment — if London "
                 "already raided and reclaimed one side, a same-direction NY raid later that "
