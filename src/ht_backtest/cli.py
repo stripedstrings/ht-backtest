@@ -3,14 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 
 from ht_backtest.data.downloader import OHLCVDownloader
-from ht_backtest.data.split import build_split_manifest
+from ht_backtest.data.split import SplitManifest, build_split_manifest
 from ht_backtest.data.universe import pull_and_validate_universe
 from ht_backtest.data.validator import validate_ohlcv
+from ht_backtest.reports.reach import format_reach_table, reach_vs_random_walk
+from ht_backtest.reports.universe_report import generate_pooled_trades
+from ht_backtest.strategies.registry import get_strategy, list_strategies
 
 
 def _parse_date(s: str) -> int:
@@ -96,6 +100,60 @@ def cmd_split_build(args: argparse.Namespace) -> None:
     print(f"  date holdout cutoff  : {manifest.to_dict()['date_holdout_start']}  (most recent {args.date_holdout_fraction:.0%} of span)")
 
 
+def cmd_run(args: argparse.Namespace) -> None:
+    strategy = get_strategy(args.strategy)
+    meta = strategy.metadata()
+    split_path = Path(args.splits_dir) / f"{args.split}.json"
+    if not split_path.exists():
+        print(f"Split manifest not found: {split_path}", file=sys.stderr)
+        sys.exit(1)
+    split = SplitManifest.load(split_path)
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_dir = Path(args.out_dir) / f"{meta.id}_{args.split}_{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    artifact_meta = {
+        "strategy": meta.to_dict(),
+        "split": args.split,
+        "split_path": str(split_path),
+        "timeframe": args.timeframe,
+        "exchange": args.exchange,
+        "cache_dir": args.cache_dir,
+        "mfe_win": args.mfe_win,
+        "created_at_utc": stamp,
+    }
+    with open(out_dir / "metadata.json", "w", encoding="utf-8") as f:
+        json.dump(artifact_meta, f, indent=2)
+
+    print(f"strategy : {meta.id} v{meta.version}  hash={meta.parameter_hash}")
+    print(f"desc     : {meta.description}")
+    print(f"split    : {args.split}  ({split_path})")
+    print(f"out      : {out_dir}")
+    print()
+
+    trades = generate_pooled_trades(
+        strategy=strategy,
+        split=split,
+        timeframe=args.timeframe,
+        exchange_id=args.exchange,
+        cache_dir=args.cache_dir,
+        mfe_win=args.mfe_win,
+    )
+    trades_path = out_dir / "trades.parquet"
+    trades.to_parquet(trades_path, index=False)
+    print(f"\nWrote {trades_path}  ({len(trades)} trades)")
+
+    train = trades[trades["split"] == "train"] if not trades.empty else trades
+    reach = reach_vs_random_walk(train)
+    reach_path = out_dir / "training_reach_table.csv"
+    reach.to_csv(reach_path, index=False)
+    print(f"Wrote {reach_path}")
+    print()
+    print(format_reach_table(reach, f"TRAIN reach vs RW — {meta.id}"))
+    print(f"\nHoldout rows present in artifact but not scored here: {(trades['split'] == 'holdout').sum() if not trades.empty else 0}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ht-backtest")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -138,6 +196,24 @@ def main() -> None:
     p_split.add_argument("--cache-dir", default="data/raw")
     p_split.add_argument("--splits-dir", default="specs/splits")
     p_split.set_defaults(func=cmd_split_build)
+
+    p_run = sub.add_parser(
+        "run",
+        help="Run a registered strategy over a locked split; write reach-vs-RW train table + metadata",
+    )
+    p_run.add_argument(
+        "--strategy",
+        required=True,
+        help=f"registered strategy id ({', '.join(list_strategies())})",
+    )
+    p_run.add_argument("--split", required=True, help="split manifest name, e.g. v1")
+    p_run.add_argument("--timeframe", default="15m")
+    p_run.add_argument("--exchange", default="binanceusdm")
+    p_run.add_argument("--cache-dir", default="data/raw")
+    p_run.add_argument("--splits-dir", default="specs/splits")
+    p_run.add_argument("--out-dir", default="data/runs")
+    p_run.add_argument("--mfe-win", type=int, default=100)
+    p_run.set_defaults(func=cmd_run)
 
     args = parser.parse_args()
     args.func(args)

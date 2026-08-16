@@ -20,6 +20,11 @@ ht-backtest = "ht_backtest.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+markers = [
+    "golden: full-universe parity check against FINDINGS.md (slow, needs OHLCV cache)",
+]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
