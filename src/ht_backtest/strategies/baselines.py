@@ -10,10 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from ht_backtest.gates.primitives import compute_atr, session_tags
 from ht_backtest.strategies.base import StrategyContext, StrategyMetadata, TradeCandidate
@@ -344,18 +346,58 @@ class MeanReversionExtremaStrategy:
         return {}
 
 
-def register_baselines(register_fn) -> None:
-    """Register the nine baseline factories (HT is registered separately)."""
-    factories = {
-        "london_open_long_atr1": lambda: SessionOpenATRStrategy("london", "long", 1.0),
-        "london_open_short_atr1": lambda: SessionOpenATRStrategy("london", "short", 1.0),
-        "ny_open_long_atr1": lambda: SessionOpenATRStrategy("ny", "long", 1.0),
-        "ny_open_short_atr1": lambda: SessionOpenATRStrategy("ny", "short", 1.0),
-        "donchian_20_long": lambda: DonchianBreakoutStrategy("long", 20),
-        "donchian_20_short": lambda: DonchianBreakoutStrategy("short", 20),
-        "sma50_mom_long": lambda: SMAMomentumStrategy("long", 50),
-        "sma50_mom_short": lambda: SMAMomentumStrategy("short", 50),
-        "mr_extrema_10_long": lambda: MeanReversionExtremaStrategy("long", 10),
-    }
-    for name, factory in factories.items():
-        register_fn(name, factory)
+def _default_baselines_path() -> Path:
+    # src/ht_backtest/strategies/baselines.py -> repo root specs/batch/baselines.yaml
+    return Path(__file__).resolve().parents[3] / "specs" / "batch" / "baselines.yaml"
+
+
+def _factory_from_spec(spec: dict[str, Any]):
+    cls = spec["class"]
+    if cls == "SessionOpenATRStrategy":
+        return lambda s=spec: SessionOpenATRStrategy(
+            session=s["session"],
+            direction=s["direction"],
+            atr_mult=float(s.get("atr_mult", 1.0)),
+            cooldown_bars=int(s.get("cooldown_bars", 96)),
+            version=str(s.get("version", "1.0.0")),
+        )
+    if cls == "DonchianBreakoutStrategy":
+        return lambda s=spec: DonchianBreakoutStrategy(
+            direction=s["direction"],
+            lookback=int(s.get("lookback", 20)),
+            atr_mult=float(s.get("atr_mult", 1.5)),
+            cooldown_bars=int(s.get("cooldown_bars", 32)),
+            version=str(s.get("version", "1.0.0")),
+        )
+    if cls == "SMAMomentumStrategy":
+        return lambda s=spec: SMAMomentumStrategy(
+            direction=s["direction"],
+            sma_len=int(s.get("sma_len", 50)),
+            atr_mult=float(s.get("atr_mult", 1.0)),
+            cooldown_bars=int(s.get("cooldown_bars", 48)),
+            version=str(s.get("version", "1.0.0")),
+        )
+    if cls == "MeanReversionExtremaStrategy":
+        return lambda s=spec: MeanReversionExtremaStrategy(
+            direction=s["direction"],
+            lookback=int(s.get("lookback", 10)),
+            atr_mult=float(s.get("atr_mult", 1.0)),
+            cooldown_bars=int(s.get("cooldown_bars", 24)),
+            version=str(s.get("version", "1.0.0")),
+        )
+    raise ValueError(f"unknown baseline class {cls!r}")
+
+
+def register_baselines(register_fn, path: str | Path | None = None) -> None:
+    """Register baseline factories from specs/batch/baselines.yaml."""
+    import yaml
+
+    yaml_path = Path(path) if path else _default_baselines_path()
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"baseline spec not found: {yaml_path}")
+    raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    for spec in raw.get("baselines", []):
+        # stamp file-level version onto each factory metadata via class default
+        if "version" not in spec and raw.get("version"):
+            spec = {**spec, "version": raw["version"]}
+        register_fn(spec["id"], _factory_from_spec(spec))

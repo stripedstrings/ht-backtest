@@ -1,0 +1,68 @@
+# Reproducibility record for the nine Phase B baseline strategies.
+# Loaded by ht_backtest.strategies.baselines — do not edit without bumping
+# strategy version hashes. Together with example_10.yaml and specs/splits/v1.json
+# this is what makes `ht-backtest batch specs/batch/example_10.yaml` repeatable.
+version: "1.0.0"
+baselines:
+  - id: london_open_long_atr1
+    class: SessionOpenATRStrategy
+    session: london
+    direction: long
+    atr_mult: 1.0
+    cooldown_bars: 96
+
+  - id: london_open_short_atr1
+    class: SessionOpenATRStrategy
+    session: london
+    direction: short
+    atr_mult: 1.0
+    cooldown_bars: 96
+
+  - id: ny_open_long_atr1
+    class: SessionOpenATRStrategy
+    session: ny
+    direction: long
+    atr_mult: 1.0
+    cooldown_bars: 96
+
+  - id: ny_open_short_atr1
+    class: SessionOpenATRStrategy
+    session: ny
+    direction: short
+    atr_mult: 1.0
+    cooldown_bars: 96
+
+  - id: donchian_20_long
+    class: DonchianBreakoutStrategy
+    direction: long
+    lookback: 20
+    atr_mult: 1.5
+    cooldown_bars: 32
+
+  - id: donchian_20_short
+    class: DonchianBreakoutStrategy
+    direction: short
+    lookback: 20
+    atr_mult: 1.5
+    cooldown_bars: 32
+
+  - id: sma50_mom_long
+    class: SMAMomentumStrategy
+    direction: long
+    sma_len: 50
+    atr_mult: 1.0
+    cooldown_bars: 48
+
+  - id: sma50_mom_short
+    class: SMAMomentumStrategy
+    direction: short
+    sma_len: 50
+    atr_mult: 1.0
+    cooldown_bars: 48
+
+  - id: mr_extrema_10_long
+    class: MeanReversionExtremaStrategy
+    direction: long
+    lookback: 10
+    atr_mult: 1.0
+    cooldown_bars: 24
