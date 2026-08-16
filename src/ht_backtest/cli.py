@@ -175,6 +175,21 @@ def cmd_worker(args: argparse.Namespace) -> None:
     raise SystemExit(0 if n_fail == 0 else 1)
 
 
+def cmd_report(args: argparse.Namespace) -> None:
+    from ht_backtest.reports.audit_report import generate_report, render_html_report
+
+    if args.completed_dir:
+        path = render_html_report(args.completed_dir, split_path=args.split_path, out_path=args.out)
+    else:
+        path = generate_report(
+            args.strategy_id,
+            candidates_root=args.candidates_dir,
+            split_path=args.split_path,
+            out_path=args.out,
+        )
+    print(f"Wrote {path}")
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     strategy = get_strategy(args.strategy)
     meta = strategy.metadata()
@@ -375,6 +390,17 @@ def main() -> None:
     p_worker.add_argument("--min-n", type=int, default=200)
     p_worker.add_argument("--skip-dry-count", action="store_true")
     p_worker.set_defaults(func=cmd_worker)
+
+    p_report = sub.add_parser(
+        "report",
+        help="Generate HTML audit report from data/candidates/completed/{strategy_id}/",
+    )
+    p_report.add_argument("strategy_id", nargs="?", default=None, help="e.g. kz_first_raid_reclaim")
+    p_report.add_argument("--completed-dir", default=None, help="direct path to a completed/ folder")
+    p_report.add_argument("--candidates-dir", default="data/candidates")
+    p_report.add_argument("--split-path", default="specs/splits/v1.json")
+    p_report.add_argument("--out", default=None, help="output HTML path (default: completed_dir/report.html)")
+    p_report.set_defaults(func=cmd_report)
 
     args = parser.parse_args()
     args.func(args)
