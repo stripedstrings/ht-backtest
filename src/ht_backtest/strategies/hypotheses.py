@@ -47,6 +47,8 @@ class KzFirstRaidReclaimStrategy:
 
     reclaim_win: int = RECLAIM_WIN
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "timing"
+    signal_type: str = "first_kz_raid_reclaim"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -88,6 +90,8 @@ class KzFirst30mRaidReclaimStrategy:
 
     reclaim_win: int = RECLAIM_WIN
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "timing"
+    signal_type: str = "first_30m_raid_reclaim"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -129,6 +133,8 @@ class HighVolGrabReclaimStrategy:
     reclaim_win: int = RECLAIM_WIN
     vol_lookback: int = VOL_LOOKBACK
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "volume"
+    signal_type: str = "high_vol_grab_reclaim"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -175,6 +181,8 @@ class LowVolGrabReclaimStrategy:
     reclaim_win: int = RECLAIM_WIN
     vol_lookback: int = VOL_LOOKBACK
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "volume"
+    signal_type: str = "low_vol_grab_reclaim"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -219,6 +227,8 @@ class TightAsiaSpringStrategy:
 
     reclaim_win: int = RECLAIM_WIN
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "range"
+    signal_type: str = "tight_asia_raid_reclaim"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -303,6 +313,8 @@ class AsiaMidBiasRaidStrategy:
 
     reclaim_win: int = RECLAIM_WIN
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "range"
+    signal_type: str = "asia_mid_bias_raid_reclaim"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -365,6 +377,8 @@ class LondonNySameDirectionStrategy:
 
     reclaim_win: int = RECLAIM_WIN
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "pattern"
+    signal_type: str = "london_then_ny_same_dir"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -416,6 +430,8 @@ class FailedRaidNextSessionFadeStrategy:
 
     fail_win: int = FAIL_WIN
     version: str = STRATEGY_VERSION
+    theoretical_category: str = "pattern"
+    signal_type: str = "failed_raid_next_kz_fade"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -495,6 +511,8 @@ class SmtFadeSweeperStrategy:
     reclaim_win: int = RECLAIM_WIN
     version: str = STRATEGY_VERSION
     requires_symbols: tuple[str, ...] = (ETH,)
+    theoretical_category: str = "cross-asset"
+    signal_type: str = "smt_fade_sweeper"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(
@@ -607,6 +625,8 @@ class SmtTradeHolderBtcSolStrategy:
     lookback: int = 20
     version: str = STRATEGY_VERSION
     requires_symbols: tuple[str, ...] = (BTC,)
+    theoretical_category: str = "cross-asset"
+    signal_type: str = "smt_trade_holder"
 
     def metadata(self) -> StrategyMetadata:
         return StrategyMetadata(

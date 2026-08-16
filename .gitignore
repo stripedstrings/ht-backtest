@@ -13,10 +13,14 @@ __pycache__/
 .env.*
 
 # Large regenerable artifacts (OHLCV cache, runs, validation dumps).
-# Keep only the golden anchor CSVs under data/reports/.
+# Keep golden anchors under data/reports/ and the hypothesis memory log.
 data/*
 !data/reports/
 data/reports/*
 !data/reports/training_reach_table.csv
 !data/reports/training_tag_hypotheses.csv
 !data/reports/phase_c_throughput.json
+!data/memory/
+data/memory/*
+!data/memory/hypothesis_log.csv
+!data/memory/README.md

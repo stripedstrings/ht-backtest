@@ -109,6 +109,23 @@ def cmd_batch(args: argparse.Namespace) -> None:
     run_batch(config)
 
 
+def cmd_memory(args: argparse.Namespace) -> None:
+    from ht_backtest.memory.hypothesis_log import (
+        format_prior_results_summary,
+        prior_for_category,
+        query_log,
+    )
+
+    if args.category:
+        print(prior_for_category(args.category, path=args.log))
+        if args.signal_type:
+            q = query_log(category=args.category, signal_type=args.signal_type, path=args.log)
+            print()
+            print(q.to_string(index=False) if not q.empty else "(no matching rows)")
+        return
+    print(format_prior_results_summary(args.log))
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     strategy = get_strategy(args.strategy)
     meta = strategy.metadata()
@@ -258,6 +275,15 @@ def main() -> None:
     )
     p_batch.add_argument("config", help="path to batch YAML, e.g. specs/batch/example_10.yaml")
     p_batch.set_defaults(func=cmd_batch)
+
+    p_mem = sub.add_parser(
+        "memory",
+        help="Show hypothesis memory: exhausted vs unexplored categories (query before new strategies)",
+    )
+    p_mem.add_argument("--log", default=None, help="path to hypothesis_log.csv (default data/memory/...)")
+    p_mem.add_argument("--category", default=None, help="filter: timing|volume|range|cross-asset|pattern")
+    p_mem.add_argument("--signal-type", default=None, help="optional signal_type inside key_parameters")
+    p_mem.set_defaults(func=cmd_memory)
 
     args = parser.parse_args()
     args.func(args)

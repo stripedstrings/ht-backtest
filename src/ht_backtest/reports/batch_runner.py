@@ -17,6 +17,11 @@ import pandas as pd
 import yaml
 
 from ht_backtest.data.split import SplitManifest
+from ht_backtest.memory.hypothesis_log import (
+    append_records,
+    format_prior_results_summary,
+    records_from_batch_comparison,
+)
 from ht_backtest.reports.comparison import format_comparison_table, strategy_comparison_table
 from ht_backtest.reports.reach import format_reach_table, reach_vs_random_walk
 from ht_backtest.reports.universe_report import generate_pooled_trades
@@ -37,6 +42,7 @@ class BatchConfig:
     min_edge_pp: float = 5.0
     min_n: int = 200
     use_primitive_cache: bool = True
+    memory_log_path: str | None = None
 
 
 def load_batch_config(path: str | Path) -> BatchConfig:
@@ -62,6 +68,7 @@ def load_batch_config(path: str | Path) -> BatchConfig:
         min_edge_pp=float(raw.get("min_edge_pp", 5.0)),
         min_n=int(raw.get("min_n", 200)),
         use_primitive_cache=bool(raw.get("use_primitive_cache", True)),
+        memory_log_path=str(raw["memory_log_path"]) if raw.get("memory_log_path") else None,
     )
 
 
@@ -71,6 +78,10 @@ def run_batch(config: BatchConfig, log_fn=print) -> Path:
         raise FileNotFoundError(f"split manifest not found: {split_path}")
     split = SplitManifest.load(split_path)
 
+    log_fn("")
+    log_fn(format_prior_results_summary(config.memory_log_path))
+    log_fn("")
+
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     batch_dir = Path(config.out_dir) / f"batch_{config.split}_{stamp}"
     batch_dir.mkdir(parents=True, exist_ok=True)
@@ -78,10 +89,12 @@ def run_batch(config: BatchConfig, log_fn=print) -> Path:
     strategy_metas: list[dict[str, Any]] = []
     trades_by_strategy: dict[str, pd.DataFrame] = {}
     wall_times: dict[str, float] = {}
+    strategy_objs: dict[str, Any] = {}
 
     for name in config.strategies:
         strategy = get_strategy(name)
         meta = strategy.metadata()
+        strategy_objs[meta.id] = strategy
         strategy_metas.append(meta.to_dict())
         log_fn("")
         log_fn(f"=== {meta.id} v{meta.version} hash={meta.parameter_hash} ===")
@@ -137,6 +150,16 @@ def run_batch(config: BatchConfig, log_fn=print) -> Path:
     comparison_path = batch_dir / "comparison.csv"
     comparison.to_csv(comparison_path, index=False)
 
+    # Memory layer: one row per strategy from this batch (train results only here;
+    # holdout_result is filled by a separate pre-registered holdout write).
+    mem_records = records_from_batch_comparison(
+        comparison,
+        strategies=strategy_objs,
+        date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    )
+    mem_path = append_records(mem_records, config.memory_log_path)
+    log_fn(f"hypothesis memory: appended {len(mem_records)} row(s) -> {mem_path}")
+
     manifest = {
         "batch_id": batch_dir.name,
         "created_at_utc": stamp,
@@ -151,10 +174,12 @@ def run_batch(config: BatchConfig, log_fn=print) -> Path:
         "strategies": strategy_metas,
         "wall_seconds_by_strategy": wall_times,
         "total_wall_seconds": float(sum(wall_times.values())),
+        "hypothesis_log": str(mem_path),
         "note": (
             "Comparison table is TRAIN only. Holdout trades are stored per strategy "
             "but must not be used for discovery. Promotion requires >min_edge_pp at "
-            "n>=min_n on train, then a separate holdout unlock."
+            "n>=min_n on train, then a separate holdout unlock. Batch rows are appended "
+            "to data/memory/hypothesis_log.csv."
         ),
     }
     with open(batch_dir / "manifest.json", "w", encoding="utf-8") as f:

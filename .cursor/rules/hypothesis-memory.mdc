@@ -1,0 +1,18 @@
+---
+description: Query hypothesis memory before implementing new strategies
+alwaysApply: true
+---
+
+# Hypothesis memory
+
+Before implementing any **new** strategy, query the log:
+
+```python
+from ht_backtest.memory import prior_for_category, query_log
+print(prior_for_category("<timing|volume|range|cross-asset|pattern>"))
+print(query_log(category="...", signal_type="..."))
+```
+
+Or: `ht-backtest memory` / `ht-backtest memory --category volume`.
+
+Do not re-test an exhausted category/signal with a cosmetic parameter tweak. Prefer unexplored categories or a genuinely different signal type. Batch runs append to `data/memory/hypothesis_log.csv` automatically and print PRIOR RESULTS at start.
