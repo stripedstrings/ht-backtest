@@ -26,12 +26,27 @@ ht-backtest intake-serve --fixture
 
 ## Outputs
 
-- `data/candidates/queued/*.yaml` — dry-count passed (n≥200); ready for a later training batch worker
-- `data/candidates/rejected/*.yaml` — reasons: `n_too_low`, `repainting_indicator_detected`, `insufficient_data`, `untranslatable_dry_count`, `look_ahead_risk`
-- Matching `*_result.json` with confidence and dry-count n
+- `data/candidates/queued/*.yaml` — dry-count passed (n≥200); ready for the training worker
+- `data/candidates/rejected/*` — intake rejects: `n_too_low`, `repainting_indicator_detected`, `insufficient_data`, …
+- `data/candidates/completed/{strategy_id}/` — worker finished: reach table, promotion flag, trades
+- `data/candidates/failed/` — worker rejects: compilation failure or full dry-count n too low
+
+## Queue worker
+
+```bash
+ht-backtest worker --run-queue
+# or poll:
+ht-backtest worker --loop --interval 60
+```
+
+Human reviews `completed/` before any holdout. Golden:
+
+```bash
+.venv/Scripts/python.exe scripts/run_worker_golden_kz_first.py
+```
 
 ## Limits (MVP)
 
 - Dry-count / queue path supports **crypto + 15m** only (existing Binance cache).
-- Dry-count methods are allowlisted (session raid/reclaim family); Claude must map to those.
-- Does not yet compile YAML → live `Strategy` or run the training batch automatically.
+- Compiler maps allowlisted `dry_count.method` values onto existing Strategy classes.
+- Does not open holdout.

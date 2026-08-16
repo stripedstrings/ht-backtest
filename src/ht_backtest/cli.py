@@ -150,6 +150,31 @@ def cmd_intake_serve(args: argparse.Namespace) -> None:
     serve(host=args.host, port=args.port, fixture_default=args.fixture)
 
 
+def cmd_worker(args: argparse.Namespace) -> None:
+    from ht_backtest.discovery.worker import run_queue
+
+    if not args.run_queue and not args.loop:
+        print("Specify --run-queue (once) or --loop", file=sys.stderr)
+        raise SystemExit(2)
+    results = run_queue(
+        root=args.candidates_dir,
+        limit=args.limit,
+        loop=args.loop,
+        interval_s=args.interval,
+        split_path=args.split_path,
+        cache_dir=args.cache_dir,
+        workers=args.workers,
+        mfe_win=args.mfe_win,
+        min_edge_pp=args.min_edge_pp,
+        min_n=args.min_n,
+        skip_dry_count=args.skip_dry_count,
+    )
+    n_ok = sum(1 for r in results if r.get("status") == "completed")
+    n_fail = sum(1 for r in results if r.get("status") == "failed")
+    print(f"\nworker done: completed={n_ok} failed={n_fail}")
+    raise SystemExit(0 if n_fail == 0 else 1)
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     strategy = get_strategy(args.strategy)
     meta = strategy.metadata()
@@ -332,6 +357,24 @@ def main() -> None:
     p_web.add_argument("--port", type=int, default=8765)
     p_web.add_argument("--fixture", action="store_true", help="default form submissions to fixture translator")
     p_web.set_defaults(func=cmd_intake_serve)
+
+    p_worker = sub.add_parser(
+        "worker",
+        help="Process data/candidates/queued → compile → train → memory → completed/failed",
+    )
+    p_worker.add_argument("--run-queue", action="store_true", help="process queued candidates once and exit")
+    p_worker.add_argument("--loop", action="store_true", help="poll the queue on an interval")
+    p_worker.add_argument("--interval", type=float, default=60.0, help="seconds between polls in --loop mode")
+    p_worker.add_argument("--limit", type=int, default=None, help="max candidates this run")
+    p_worker.add_argument("--candidates-dir", default="data/candidates")
+    p_worker.add_argument("--split-path", default="specs/splits/v1.json")
+    p_worker.add_argument("--cache-dir", default="data/raw")
+    p_worker.add_argument("--workers", type=int, default=4)
+    p_worker.add_argument("--mfe-win", type=int, default=100)
+    p_worker.add_argument("--min-edge-pp", type=float, default=5.0)
+    p_worker.add_argument("--min-n", type=int, default=200)
+    p_worker.add_argument("--skip-dry-count", action="store_true")
+    p_worker.set_defaults(func=cmd_worker)
 
     args = parser.parse_args()
     args.func(args)
