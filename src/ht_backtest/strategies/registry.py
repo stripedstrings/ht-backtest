@@ -7,6 +7,7 @@ from collections.abc import Callable
 from ht_backtest.strategies.base import Strategy
 from ht_backtest.strategies.baselines import register_baselines
 from ht_backtest.strategies.holy_trinity_v10 import HolyTrinityV10Strategy, default_holy_trinity_v10
+from ht_backtest.strategies.hypotheses import register_hypotheses
 
 StrategyFactory = Callable[[], Strategy]
 
@@ -16,6 +17,7 @@ _REGISTRY: dict[str, StrategyFactory] = {
 }
 
 register_baselines(_REGISTRY.__setitem__)
+register_hypotheses(_REGISTRY.__setitem__)
 
 
 def list_strategies() -> list[str]:
