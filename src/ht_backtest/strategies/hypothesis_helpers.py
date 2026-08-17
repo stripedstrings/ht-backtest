@@ -37,7 +37,14 @@ def ensure_primitives(bars: pd.DataFrame, ctx: StrategyContext) -> SymbolPrimiti
     return compute_symbol_primitives(bars)
 
 
-def session_range_frame(bars: pd.DataFrame, prim: SymbolPrimitives) -> pd.DataFrame:
+def session_range_frame(
+    bars: pd.DataFrame,
+    prim: SymbolPrimitives,
+    *,
+    sw_len: int = 5,
+    one_raid: bool = True,
+    max_liq: int = 8,
+) -> pd.DataFrame:
     return run_session_range_engine(
         bars,
         prim.atr,
@@ -47,9 +54,9 @@ def session_range_frame(bars: pd.DataFrame, prim: SymbolPrimitives) -> pd.DataFr
         prim.pdl,
         prim.pool_events,
         prim.asia_pools,
-        max_liq=8,
-        one_raid=True,
-        sw_len=5,
+        max_liq=max_liq,
+        one_raid=one_raid,
+        sw_len=sw_len,
     )
 
 

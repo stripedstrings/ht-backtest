@@ -36,6 +36,13 @@ class SplitManifest:
     overall_start_ms: int
     overall_end_ms: int
     date_holdout_start_ms: int
+    timeframes: list[str] | None = None
+
+    def supported_timeframes(self) -> list[str]:
+        """Timeframes valid under this split (symbol/date cutoffs are TF-agnostic)."""
+        if self.timeframes:
+            return list(self.timeframes)
+        return [self.timeframe]
 
     def classify(self, symbol: str, timestamp_ms: int) -> str:
         if symbol in self.holdout_symbols:
@@ -55,7 +62,7 @@ class SplitManifest:
         return out
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "seed": self.seed,
             "timeframe": self.timeframe,
             "symbol_holdout_fraction": self.symbol_holdout_fraction,
@@ -70,6 +77,9 @@ class SplitManifest:
             "overall_end_ms": self.overall_end_ms,
             "date_holdout_start_ms": self.date_holdout_start_ms,
         }
+        if self.timeframes:
+            d["timeframes"] = list(self.timeframes)
+        return d
 
     def save(self, path: str | Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -91,6 +101,7 @@ class SplitManifest:
             overall_start_ms=d["overall_start_ms"],
             overall_end_ms=d["overall_end_ms"],
             date_holdout_start_ms=d["date_holdout_start_ms"],
+            timeframes=d.get("timeframes"),
         )
 
 

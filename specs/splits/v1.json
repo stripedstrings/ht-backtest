@@ -1,6 +1,7 @@
 {
   "seed": 20260726,
   "timeframe": "15m",
+  "timeframes": ["15m", "1m"],
   "symbol_holdout_fraction": 0.3,
   "date_holdout_fraction": 0.2,
   "universe": [
@@ -74,5 +75,6 @@
   "date_holdout_start": "2025-03-11T03:09:00+00:00",
   "overall_start_ms": 1567964700000,
   "overall_end_ms": 1785087000000,
-  "date_holdout_start_ms": 1741662540000
+  "date_holdout_start_ms": 1741662540000,
+  "note": "Symbol holdout and date cutoff are timeframe-agnostic. Primary research timeframe remains 15m; 1m is valid for session-range / higher-resolution work under the same split."
 }

@@ -120,6 +120,8 @@ class OHLCVDownloader:
                 segments.append((last_cursor, until_ms))
 
         new_rows: list[list] = []
+        pages = 0
+        fetched_new = 0
         for seg_start, seg_end in segments:
             cursor = seg_start
             while cursor < seg_end:
@@ -127,14 +129,37 @@ class OHLCVDownloader:
                 if not batch:
                     break
                 batch = [b for b in batch if b[0] < seg_end]
+                if not batch:
+                    break
                 new_rows.extend(batch)
-                last_ts = batch[-1][0] if batch else cursor
+                fetched_new += len(batch)
+                pages += 1
+                last_ts = batch[-1][0]
                 next_cursor = last_ts + tf_ms
                 if next_cursor <= cursor:
                     break
                 cursor = next_cursor
-                if len(batch) < self.limit:
-                    break
+                # Flush every ~50k bars so 1m multi-year pulls don't hold everything in RAM
+                # and so interrupted runs leave usable cache.
+                if len(new_rows) >= 50_000:
+                    new_df = pd.DataFrame(new_rows, columns=OHLCV_COLUMNS)
+                    periods = (
+                        pd.to_datetime(new_df["timestamp"], unit="ms", utc=True)
+                        .dt.tz_localize(None)
+                        .dt.to_period("M")
+                    )
+                    for period, month_df in new_df.groupby(periods):
+                        existing = self._load_month(symbol, timeframe, period)
+                        merged = pd.concat([existing, month_df], ignore_index=True)
+                        self._save_month(symbol, timeframe, period, merged)
+                    print(
+                        f"    ... flushed {len(new_rows)} bars "
+                        f"(through {pd.Timestamp(last_ts, unit='ms', tz='UTC')}, pages={pages})",
+                        flush=True,
+                    )
+                    new_rows = []
+                # Do NOT stop merely because len(batch) < limit: Binance often
+                # returns 1000 even when limit=1500; that is not end-of-history.
 
         if new_rows:
             new_df = pd.DataFrame(new_rows, columns=OHLCV_COLUMNS)
@@ -151,5 +176,5 @@ class OHLCVDownloader:
             rows=len(final),
             start=pd.Timestamp(final["timestamp"].min(), unit="ms", tz="UTC") if not final.empty else None,
             end=pd.Timestamp(final["timestamp"].max(), unit="ms", tz="UTC") if not final.empty else None,
-            fetched_new_bars=len(new_rows),
+            fetched_new_bars=fetched_new,
         )

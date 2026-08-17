@@ -66,6 +66,18 @@ def test_save_load_roundtrip(tmp_path):
     assert loaded.train_symbols == m.train_symbols
     assert loaded.date_holdout_start_ms == m.date_holdout_start_ms
     assert loaded.seed == m.seed
+    assert loaded.supported_timeframes() == ["15m"]
+
+
+def test_v1_split_is_timeframe_agnostic():
+    from pathlib import Path
+
+    m = SplitManifest.load(Path("specs/splits/v1.json"))
+    assert m.timeframe == "15m"
+    assert m.supported_timeframes() == ["15m", "1m"]
+    assert m.classify(m.train_symbols[0], m.date_holdout_start_ms - 1) == "train"
+    assert m.classify(m.train_symbols[0], m.date_holdout_start_ms) == "holdout"
+    assert m.classify(m.holdout_symbols[0], 0) == "holdout"
 
 
 def test_symbol_sampling_is_reproducible_with_fixed_seed():
