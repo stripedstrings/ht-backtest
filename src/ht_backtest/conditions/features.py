@@ -9,6 +9,7 @@ import pandas as pd
 
 from ht_backtest.data.funding import attach_funding_rate
 from ht_backtest.data.htf_4h import attach_4h_for_symbol
+from ht_backtest.data.liq import attach_liquidations
 from ht_backtest.data.oi import attach_open_interest
 from ht_backtest.gates.primitive_cache import SymbolPrimitives, load_or_compute_primitives
 from ht_backtest.gates.primitives import LONDON_TZ
@@ -177,11 +178,13 @@ def enrich_condition_features(
     cache_dir: str | Path = "data/raw",
     funding_dir: str | Path = "data/funding",
     oi_dir: str | Path = "data/oi",
+    liq_dir: str | Path = "data/liq",
     primitives_cache_dir: str | Path = "data/cache/primitives",
     use_primitive_cache: bool = True,
     attach_funding: bool = True,
     attach_htf: bool = True,
     attach_oi: bool = True,
+    attach_liq: bool = True,
 ) -> pd.DataFrame:
     """Return a copy of bars with columns required by the condition library."""
     out = bars.copy()
@@ -189,6 +192,8 @@ def enrich_condition_features(
         out = attach_funding_rate(out, symbol, funding_dir=funding_dir)
     if attach_oi:
         out = attach_open_interest(out, symbol, oi_dir=oi_dir)
+    if attach_liq:
+        out = attach_liquidations(out, symbol, liq_dir=liq_dir)
     if attach_htf:
         out = attach_4h_for_symbol(out, symbol, cache_dir=cache_dir)
 

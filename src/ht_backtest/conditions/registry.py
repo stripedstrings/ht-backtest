@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ht_backtest.conditions.funding import FUNDING_CONDITIONS
 from ht_backtest.conditions.htf import HTF_CONDITIONS
+from ht_backtest.conditions.liq import LIQ_CONDITIONS
 from ht_backtest.conditions.oi import OI_CONDITIONS
 from ht_backtest.conditions.prior_session import PRIOR_SESSION_CONDITIONS
 from ht_backtest.conditions.range_ctx import RANGE_CONDITIONS
@@ -18,6 +19,7 @@ ALL_CONDITIONS = (
     *PRIOR_SESSION_CONDITIONS,
     *FUNDING_CONDITIONS,
     *OI_CONDITIONS,
+    *LIQ_CONDITIONS,
 )
 
 CONDITION_BY_ID = {c.id: c for c in ALL_CONDITIONS}

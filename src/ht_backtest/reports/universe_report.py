@@ -20,6 +20,7 @@ import pandas as pd
 
 from ht_backtest.data.downloader import OHLCVDownloader
 from ht_backtest.data.funding import attach_funding_rate
+from ht_backtest.data.liq import attach_liquidations
 from ht_backtest.data.oi import attach_open_interest
 from ht_backtest.data.split import SplitManifest
 from ht_backtest.gates.primitive_cache import load_or_compute_primitives
@@ -82,6 +83,8 @@ def _process_symbol_timed(
     attach_funding: bool = True,
     oi_dir: str = "data/oi",
     attach_oi: bool = True,
+    liq_dir: str = "data/liq",
+    attach_liq: bool = True,
 ) -> tuple[pd.DataFrame, int, StageTimings]:
     timings = StageTimings(symbols=1)
     t_all = time.perf_counter()
@@ -90,6 +93,8 @@ def _process_symbol_timed(
         df = attach_funding_rate(df, symbol, funding_dir=funding_dir)
     if attach_oi:
         df = attach_open_interest(df, symbol, oi_dir=oi_dir)
+    if attach_liq:
+        df = attach_liquidations(df, symbol, liq_dir=liq_dir)
 
     t0 = time.perf_counter()
     prim = load_or_compute_primitives(
@@ -192,6 +197,8 @@ def _run_one_symbol(payload: dict[str, Any]) -> tuple[str, pd.DataFrame, float, 
         attach_funding=payload.get("attach_funding", True),
         oi_dir=payload.get("oi_dir", "data/oi"),
         attach_oi=payload.get("attach_oi", True),
+        liq_dir=payload.get("liq_dir", "data/liq"),
+        attach_liq=payload.get("attach_liq", True),
     )
     timings.parquet_load_s = load_s
     timings.total_s += load_s
@@ -214,6 +221,8 @@ def generate_pooled_trades(
     attach_funding: bool = True,
     oi_dir: str = "data/oi",
     attach_oi: bool = True,
+    liq_dir: str = "data/liq",
+    attach_liq: bool = True,
     log_fn=print,
 ) -> tuple[pd.DataFrame, StageTimings]:
     """Generate pooled trades for one strategy across the split universe.
@@ -221,8 +230,9 @@ def generate_pooled_trades(
     Returns (trades_df, StageTimings). `workers>1` uses a process pool over
     symbols and requires `strategy_name` + `split_path`.
 
-    When ``attach_funding`` / ``attach_oi`` is True, each symbol's OHLCV frame
-    gains causal ``funding_rate`` / ``open_interest`` columns (row count unchanged).
+    When ``attach_funding`` / ``attach_oi`` / ``attach_liq`` is True, each
+    symbol's OHLCV frame gains causal funding / OI / liquidation columns
+    (row count unchanged). Missing cache → NaN columns → conditions None.
     """
     meta = strategy.metadata()
     workers = max(1, int(workers))
@@ -254,6 +264,8 @@ def generate_pooled_trades(
                 attach_funding=attach_funding,
                 oi_dir=oi_dir,
                 attach_oi=attach_oi,
+                liq_dir=liq_dir,
+                attach_liq=attach_liq,
             )
             timings.parquet_load_s = load_s
             timings.total_s += load_s
@@ -303,6 +315,8 @@ def generate_pooled_trades(
             "attach_funding": attach_funding,
             "oi_dir": str(Path(oi_dir).resolve()),
             "attach_oi": attach_oi,
+            "liq_dir": str(Path(liq_dir).resolve()),
+            "attach_liq": attach_liq,
         }
         for symbol in split.universe
     ]
