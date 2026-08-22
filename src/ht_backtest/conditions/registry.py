@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ht_backtest.conditions.funding import FUNDING_CONDITIONS
 from ht_backtest.conditions.htf import HTF_CONDITIONS
+from ht_backtest.conditions.oi import OI_CONDITIONS
 from ht_backtest.conditions.prior_session import PRIOR_SESSION_CONDITIONS
 from ht_backtest.conditions.range_ctx import RANGE_CONDITIONS
 from ht_backtest.conditions.session import SESSION_CONDITIONS
@@ -16,6 +17,7 @@ ALL_CONDITIONS = (
     *HTF_CONDITIONS,
     *PRIOR_SESSION_CONDITIONS,
     *FUNDING_CONDITIONS,
+    *OI_CONDITIONS,
 )
 
 CONDITION_BY_ID = {c.id: c for c in ALL_CONDITIONS}
@@ -32,6 +34,7 @@ MUTEX_PAIRS: tuple[tuple[str, str], ...] = (
     ("above_4h_ema20", "below_4h_ema20"),
     ("4h_hh_hl", "4h_lh_ll"),
     ("funding_positive", "funding_negative"),
+    ("oi_rising", "oi_falling"),
     ("london_raided_high", "london_raided_low"),
     ("prior_session_same_direction", "prior_session_opposite_direction"),
     # London outcome undefined while London is open — impossible ANDs

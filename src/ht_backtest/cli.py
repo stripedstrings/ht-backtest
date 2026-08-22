@@ -283,6 +283,68 @@ def cmd_funding_validate(args: argparse.Namespace) -> None:
         print(f"condition {cond.id}: true={n_true} none={n_none} on sample={len(sample)}")
 
 
+def cmd_oi_download(args: argparse.Namespace) -> None:
+    from ht_backtest.data.oi import download_universe_oi
+    from ht_backtest.data.split import SplitManifest
+
+    split = SplitManifest.load(args.split_path)
+    since_ms = _parse_date(args.since)
+    until_ms = _parse_date(args.until) if args.until else None
+    results = download_universe_oi(
+        list(split.universe),
+        since_ms=since_ms,
+        until_ms=until_ms,
+        oi_dir=args.oi_dir,
+        exchange_id=args.exchange,
+    )
+    print(f"Done: {len(results)} symbols, rows={sum(r.rows for r in results)}")
+
+
+def cmd_oi_validate(args: argparse.Namespace) -> None:
+    """Print BTC merged OI at fixed timestamps; assert bar row count unchanged."""
+    from ht_backtest.conditions.oi import OI_CONDITIONS
+    from ht_backtest.data.downloader import OHLCVDownloader
+    from ht_backtest.data.oi import attach_open_interest, oi_at_bar_open
+
+    symbol = args.symbol
+    dl = OHLCVDownloader(exchange_id=args.exchange, cache_dir=args.cache_dir)
+    bars = dl.cached_range(symbol, args.timeframe, 0, 4_102_444_800_000)
+    if bars.empty:
+        print(f"No OHLCV cache for {symbol}", file=sys.stderr)
+        raise SystemExit(2)
+    n0 = len(bars)
+    merged = attach_open_interest(bars, symbol, oi_dir=args.oi_dir)
+    if len(merged) != n0:
+        print(f"MERGE BUG: rows {n0} → {len(merged)}", file=sys.stderr)
+        raise SystemExit(1)
+
+    checkpoints = [
+        "2024-03-01T08:00:00+00:00",  # likely NaN — Binance OI hist ~30d
+        "2026-08-01T00:00:00+00:00",
+        "2026-08-15T12:00:00+00:00",
+    ]
+    print(f"BTC OI merge validation ({symbol})")
+    print(f"bars={len(merged)} (unchanged from {n0})")
+    print("-" * 72)
+    print(f"{'bar_open_utc':<28} {'open_interest':>16}")
+    for iso in checkpoints:
+        ts_ms = int(pd.Timestamp(iso).timestamp() * 1000)
+        val = oi_at_bar_open(merged, ts_ms)
+        if val is None:
+            print(f"{iso:<28} {'MISSING/NaN':>16}")
+        else:
+            print(f"{iso:<28} {val:16.4f}")
+    print("-" * 72)
+    n_oi = int(merged["open_interest"].notna().sum())
+    print(f"bars with OI={n_oi}/{len(merged)}")
+    sample = merged.dropna(subset=["open_interest"]).tail(500)
+    for cond in OI_CONDITIONS:
+        s = cond.eval(sample)
+        n_true = int(sum(v is True for v in s))
+        n_none = int(sum(v is None for v in s))
+        print(f"condition {cond.id}: true={n_true} none={n_none} on sample={len(sample)}")
+
+
 def cmd_htf_download(args: argparse.Namespace) -> None:
     from ht_backtest.data.htf_4h import download_universe_4h
     from ht_backtest.data.split import SplitManifest
@@ -572,6 +634,28 @@ def main() -> None:
     p_fval.add_argument("--cache-dir", default="data/raw")
     p_fval.add_argument("--funding-dir", default="data/funding")
     p_fval.set_defaults(func=cmd_funding_validate)
+
+    p_oi = sub.add_parser(
+        "oi-download",
+        help="Download Binance USDM open-interest history for split universe → data/oi/",
+    )
+    p_oi.add_argument("--split-path", default="specs/splits/v1.json")
+    p_oi.add_argument("--since", default="2019-09-08", help="UTC start date")
+    p_oi.add_argument("--until", default=None)
+    p_oi.add_argument("--exchange", default="binanceusdm")
+    p_oi.add_argument("--oi-dir", default="data/oi")
+    p_oi.set_defaults(func=cmd_oi_download)
+
+    p_oival = sub.add_parser(
+        "oi-validate",
+        help="Print BTC merged OI at fixed timestamps; assert row count unchanged",
+    )
+    p_oival.add_argument("--symbol", default="BTC/USDT:USDT")
+    p_oival.add_argument("--timeframe", default="15m")
+    p_oival.add_argument("--exchange", default="binanceusdm")
+    p_oival.add_argument("--cache-dir", default="data/raw")
+    p_oival.add_argument("--oi-dir", default="data/oi")
+    p_oival.set_defaults(func=cmd_oi_validate)
 
     p_h4 = sub.add_parser("htf-download", help="Download 4h OHLCV for split universe")
     p_h4.add_argument("--split-path", default="specs/splits/v1.json")
