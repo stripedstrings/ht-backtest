@@ -1,7 +1,10 @@
 # Architecture: Automated Strategy Discovery & Testing
 
-**Status:** design only — no implementation yet.  
-**Date:** 2026-08-16  
+**Status:** partially implemented (2026-08-22). Intake Mode A + queue worker exist in `src/ht_backtest/discovery/`. Combination engine, Mode B Python, and EA/live execution are **not** built here.
+
+**Superseded for execution and the autonomous loop:** see [`promotion_gate.md`](promotion_gate.md) (hard constraint) and [`autonomous_system.md`](autonomous_system.md) (data daemon, generator, synthesizer, paper/live in a separate process). This file remains the historical design for ingestion and the test worker; Components 3–4 below must not be implemented in a way that conflicts with those two documents (no train-only EA, no keys in this repo, no unpaid FDR family).
+
+**Original date:** 2026-08-16  
 **Constraint:** sits on top of the existing reach-vs-RW engine; does not weaken train/holdout separation, golden HT integrity, or hypothesis memory.
 
 ---
